@@ -1,9 +1,10 @@
+// backend/routes/product.routes.js
 const express = require("express");
 const Product = require("../models/Product");
 
 const router = express.Router();
 
-// 📌 GET ALL ACTIVE PRODUCTS (public)
+// 📌 GET ALL ACTIVE PRODUCTS (Public)
 router.get("/", async (req, res) => {
   try {
     const { search } = req.query;
@@ -21,20 +22,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// 📌 LOW STOCK PRODUCTS
-router.get("/low-stock", async (req, res) => {
-  try {
-    const products = await Product.find({
-      alertLevel: { $in: ["CRITICAL", "LOW", "WARNING"] }
-    });
-
-    res.json({ success: true, products });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// 📌 GET PRODUCT BY ID (public)
+// 📌 GET PRODUCT BY ID (Public)
 router.get("/:id", async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
@@ -52,18 +40,16 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// 📌 CREATE PRODUCT (DEV MODE)
+// 📌 CREATE PRODUCT (Admin Only — Dev Mode)
 router.post("/", async (req, res) => {
   try {
     const { name, customerPrice, dealerPrice } = req.body;
 
     if (!name || !customerPrice || !dealerPrice) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Name, Customer Price & Dealer Price are required!"
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Name, Customer Price & Dealer Price are required!",
+      });
     }
 
     const product = await Product.create(req.body);
@@ -78,9 +64,18 @@ router.post("/", async (req, res) => {
   }
 });
 
-// 📌 UPDATE PRODUCT (DEV MODE)
+// 📌 UPDATE PRODUCT (Admin Only — Dev Mode)
 router.patch("/:id", async (req, res) => {
   try {
+    const { name, customerPrice, dealerPrice } = req.body;
+
+    if (!name || !customerPrice || !dealerPrice) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, Customer Price & Dealer Price are required!",
+      });
+    }
+
     const product = await Product.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -95,7 +90,7 @@ router.patch("/:id", async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Product updated",
+      message: "Product updated successfully",
       product,
     });
   } catch (err) {
@@ -103,7 +98,7 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-// 📌 DELETE PRODUCT
+// 📌 DELETE PRODUCT (Admin Only — Dev Mode)
 router.delete("/:id", async (req, res) => {
   try {
     const product = await Product.findByIdAndDelete(req.params.id);
@@ -116,7 +111,7 @@ router.delete("/:id", async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Product deleted",
+      message: "Product deleted successfully",
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
