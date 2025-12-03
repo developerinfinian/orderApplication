@@ -39,27 +39,21 @@ router.post("/", protect, async (req, res) => {
     let items = [];
     let total = 0;
 
-    // Convert frontend productName → productId and calculate price
     for (const item of products) {
-      const product = await Product.findOne({ name: item.productName });
 
+      const product = await Product.findById(item.productId);
       if (!product) {
-        return res
-          .status(400)
-          .json({ message: `Product not found: ${item.productName}` });
+        return res.status(400).json({ message: `Product not found` });
       }
 
-      // Add item with productId
       items.push({
         product: product._id,
         qty: item.quantity,
       });
 
-      // Normal customer price calculation
       total += product.customerPrice * item.quantity;
     }
 
-    // Create order
     const order = await Order.create({
       dealer: req.user.id,
       items,
