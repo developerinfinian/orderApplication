@@ -10,6 +10,8 @@ const userRoutes = require('./routes/user.routes');
 const productRoutes = require('./routes/product.routes');
 const orderRoutes = require('./routes/order.routes');
 const cartRoutes = require('./routes/cart.routes');
+app.use("/dealer/orders", require("./routes/dealer.orders"));
+
 
 const app = express();
 connectDB();
