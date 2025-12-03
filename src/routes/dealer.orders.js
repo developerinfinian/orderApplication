@@ -70,8 +70,6 @@ router.post("/", protect, async (req, res) => {
     });
   } catch (err) {
     console.log("Dealer Order Create Error:", err.message);
-    console.log("ORDER BODY:", req.body);
-
     return res.status(500).json({ message: "Failed to place order" });
   }
 });
