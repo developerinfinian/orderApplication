@@ -49,17 +49,17 @@ router.post("/", protect, async (req, res) => {
           .json({ message: `Product not found: ${item.productName}` });
       }
 
-      // push converted item
+      // Add item with productId
       items.push({
         product: product._id,
         qty: item.quantity,
       });
 
-      // dealer price calculation
-      total += product.dealerPrice * item.quantity;
+      // Normal customer price calculation
+      total += product.customerPrice * item.quantity;
     }
 
-    // create order
+    // Create order
     const order = await Order.create({
       dealer: req.user.id,
       items,
