@@ -1,4 +1,3 @@
-// backend/routes/product.routes.js
 const express = require("express");
 const Product = require("../models/Product");
 
@@ -21,7 +20,8 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-// 🔐 Only Admin should see this later — currently open until Auth setup done
+
+// 📌 LOW STOCK PRODUCTS
 router.get("/low-stock", async (req, res) => {
   try {
     const products = await Product.find({
@@ -52,15 +52,18 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// 📌 CREATE PRODUCT (NO TOKEN – DEV MODE)
+// 📌 CREATE PRODUCT (DEV MODE)
 router.post("/", async (req, res) => {
   try {
-    const { name, price } = req.body;
+    const { name, customerPrice, dealerPrice } = req.body;
 
-    if (!name || !price) {
+    if (!name || !customerPrice || !dealerPrice) {
       return res
         .status(400)
-        .json({ success: false, message: "Name & Price are required!" });
+        .json({
+          success: false,
+          message: "Name, Customer Price & Dealer Price are required!"
+        });
     }
 
     const product = await Product.create(req.body);
@@ -75,7 +78,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-// 📌 UPDATE PRODUCT (NO TOKEN – DEV MODE)
+// 📌 UPDATE PRODUCT (DEV MODE)
 router.patch("/:id", async (req, res) => {
   try {
     const product = await Product.findByIdAndUpdate(
@@ -100,7 +103,7 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-// 📌 DELETE PRODUCT (NO TOKEN – DEV MODE)
+// 📌 DELETE PRODUCT
 router.delete("/:id", async (req, res) => {
   try {
     const product = await Product.findByIdAndDelete(req.params.id);
