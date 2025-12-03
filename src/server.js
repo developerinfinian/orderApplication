@@ -10,7 +10,7 @@ const userRoutes = require('./routes/user.routes');
 const productRoutes = require('./routes/product.routes');
 const orderRoutes = require('./routes/order.routes');
 const cartRoutes = require('./routes/cart.routes');
-app.use("/dealer/orders", require("./routes/dealer.orders"));
+const dealerorder=require('./routes/dealer.orders')
 
 
 const app = express();
@@ -25,6 +25,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/cart', cartRoutes);
+app.use('dealer/orders',dealerorder)
 app.get('/', (req, res) => {
   res.send('Order Management API is running');
 });
