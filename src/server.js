@@ -25,7 +25,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/cart', cartRoutes);
-app.use('dealer/orders',dealerorder)
+app.use('/dealer/orders',dealerorder)
 app.get('/', (req, res) => {
   res.send('Order Management API is running');
 });
