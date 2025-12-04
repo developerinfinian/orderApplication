@@ -1,29 +1,51 @@
 const express = require("express");
 const User = require("../models/User");
 const upload = require("../middleware/upload");
+const { protect } = require("../middleware/auth");
 
 const router = express.Router();
 
-// Get all users
-router.get("/", async (req, res) => {
+/* --------------------------------------------------------
+   HELPER FUNCTION: Check Admin / Manager Access
+---------------------------------------------------------*/
+const isAdminOrManager = (user) => {
+  return user.role === "ADMIN" || user.role === "MANAGER";
+};
+
+/* --------------------------------------------------------
+   GET ALL USERS (ADMIN & MANAGER ONLY)
+---------------------------------------------------------*/
+router.get("/", protect, async (req, res) => {
   try {
+    if (!isAdminOrManager(req.user)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const users = await User.find().select("-password");
+
     res.json({ success: true, users });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// Add User
-router.post("/", async (req, res) => {
+/* --------------------------------------------------------
+   ADD NEW USER (ADMIN & MANAGER ONLY)
+---------------------------------------------------------*/
+router.post("/", protect, async (req, res) => {
   try {
+    if (!isAdminOrManager(req.user)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const { name, email, phone, password, role, address, gstNumber } = req.body;
 
     if (!name || !email || !phone || !password)
       return res.status(400).json({ message: "All fields required" });
 
     const exists = await User.findOne({ email });
-    if (exists) return res.status(400).json({ message: "Email already exists" });
+    if (exists)
+      return res.status(400).json({ message: "Email already exists" });
 
     const newUser = await User.create({
       name,
@@ -32,23 +54,30 @@ router.post("/", async (req, res) => {
       password,
       role: role || "CUSTOMER",
       address,
-      gstNumber
+      gstNumber,
     });
 
     res.status(201).json({
       success: true,
       message: "User created successfully",
-      newUser
+      newUser,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// Get single user
-router.get("/:id", async (req, res) => {
+/* --------------------------------------------------------
+   GET SINGLE USER (Admin/Manager OR User Himself)
+---------------------------------------------------------*/
+router.get("/:id", protect, async (req, res) => {
   try {
+    if (!isAdminOrManager(req.user) && req.user._id.toString() !== req.params.id) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const user = await User.findById(req.params.id).select("-password");
+
     if (!user) return res.status(404).json({ message: "User not found" });
 
     res.json({ success: true, user });
@@ -57,9 +86,15 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// Update with Image Upload
-router.put("/:id", upload.single("profileImage"), async (req, res) => {
+/* --------------------------------------------------------
+   UPDATE USER (ADMIN & MANAGER ONLY)
+---------------------------------------------------------*/
+router.put("/:id", protect, upload.single("profileImage"), async (req, res) => {
   try {
+    if (!isAdminOrManager(req.user)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const { name, email, phone, role, isActive, address, gstNumber } = req.body;
 
     let updateData = {
@@ -72,7 +107,7 @@ router.put("/:id", upload.single("profileImage"), async (req, res) => {
       gstNumber,
     };
 
-    // If Image Uploaded
+    // Image update
     if (req.file) {
       updateData.profileImage = `/uploads/profile/${req.file.filename}`;
     }
@@ -89,17 +124,24 @@ router.put("/:id", upload.single("profileImage"), async (req, res) => {
       message: "User updated successfully",
       updatedUser,
     });
-
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// Delete
-router.delete("/:id", async (req, res) => {
+/* --------------------------------------------------------
+   DELETE USER (ADMIN & MANAGER ONLY)
+---------------------------------------------------------*/
+router.delete("/:id", protect, async (req, res) => {
   try {
+    if (!isAdminOrManager(req.user)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const deleted = await User.findByIdAndDelete(req.params.id);
-    if (!deleted) return res.status(404).json({ message: "User not found" });
+
+    if (!deleted)
+      return res.status(404).json({ message: "User not found" });
 
     res.json({ success: true, message: "User deleted successfully" });
   } catch (err) {
@@ -107,10 +149,17 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// Toggle Active/Inactive
-router.put("/:id/status", async (req, res) => {
+/* --------------------------------------------------------
+   TOGGLE ACTIVE/INACTIVE STATUS (ADMIN & MANAGER ONLY)
+---------------------------------------------------------*/
+router.put("/:id/status", protect, async (req, res) => {
   try {
+    if (!isAdminOrManager(req.user)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const user = await User.findById(req.params.id);
+
     if (!user)
       return res.status(404).json({ message: "User not found" });
 
@@ -120,7 +169,7 @@ router.put("/:id/status", async (req, res) => {
     res.json({
       success: true,
       message: "Status updated successfully",
-      status: user.isActive
+      status: user.isActive,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
