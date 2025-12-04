@@ -1,12 +1,12 @@
 const mongoose = require("mongoose");
-const { v4: uuidv4 } = require("uuid");
+const crypto = require("crypto");
 
 const orderSchema = new mongoose.Schema(
   {
     orderId: {
       type: String,
       unique: true,
-      default: () => uuidv4(), // ✅ Auto generates a unique ID
+      default: () => crypto.randomUUID(), // ✅ built-in Node function
     },
 
     user: {
