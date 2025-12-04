@@ -13,10 +13,18 @@ const cartRoutes = require('./routes/cart.routes');
 const dealerorder=require('./routes/dealer.orders')
 
 
+
+
+
 const app = express();
 connectDB();
-
-app.use(cors());
+app.use(
+  cors({
+    origin: "*", // or your domain if needed
+    methods: "GET,POST,PUT,DELETE",
+    allowedHeaders: "Content-Type,Authorization",
+  })
+);
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan('dev'));
 
