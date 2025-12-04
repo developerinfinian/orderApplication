@@ -42,6 +42,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/bill", billRoutes);
+app.use("/api/dashboard", require("./routes/adminDashboard.routes"));
 
 // test route
 app.get("/", (req, res) => {
