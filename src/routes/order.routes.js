@@ -32,7 +32,7 @@ router.get("/all", protect, async (req, res) => {
 ------------------------------------------------------------------ */
 router.put("/status/:id", protect, async (req, res) => {
   try {
-    if (req.user.role !== "ADMIN") {
+    if (req.user.role !== "ADMIN" || "MANAGER") {
       return res.status(403).json({ message: "Access denied" });
     }
 
