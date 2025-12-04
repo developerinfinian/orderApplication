@@ -10,6 +10,68 @@ const router = express.Router();
 const isAdminOrManager = (user) => {
   return user.role === "ADMIN" || user.role === "MANAGER";
 };
+/* -------------------------------------------------------
+   CHART DATA: Monthly Revenue, Daily Orders, Product Share
+---------------------------------------------------------*/
+router.get("/charts", protect, async (req, res) => {
+  try {
+    if (!isAdminOrManager(req.user)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const currentYear = new Date().getFullYear();
+
+    // Monthly Revenue
+    const monthly = await Order.aggregate([
+      {
+        $group: {
+          _id: { month: { $month: "$createdAt" } },
+          total: { $sum: "$totalAmount" }
+        }
+      },
+      { $sort: { "_id.month": 1 } }
+    ]);
+
+    // Daily Orders (last 7 days)
+    const last7Days = new Date();
+    last7Days.setDate(last7Days.getDate() - 7);
+
+    const daily = await Order.aggregate([
+      { $match: { createdAt: { $gte: last7Days } } },
+      {
+        $group: {
+          _id: { day: { $dayOfMonth: "$createdAt" } },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { "_id.day": 1 } }
+    ]);
+
+    // Product Sales Pie Chart
+    const products = await Order.aggregate([
+      { $unwind: "$items" },
+      {
+        $group: {
+          _id: "$items.product",
+          qty: { $sum: "$items.qty" }
+        }
+      },
+      { $sort: { qty: -1 } }
+    ]);
+
+    res.json({
+      success: true,
+      charts: {
+        monthlyRevenue: monthly,
+        dailyOrders: daily,
+        productSales: products
+      }
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 /* -------------------------------------------------------
       ADMIN DASHBOARD STATS API
