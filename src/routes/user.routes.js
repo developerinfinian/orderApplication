@@ -1,3 +1,4 @@
+// routes/user.routes.js
 const express = require("express");
 const User = require("../models/User");
 const upload = require("../middleware/upload");
@@ -6,7 +7,7 @@ const { protect } = require("../middleware/auth");
 const router = express.Router();
 
 /* --------------------------------------------------------
-   HELPER FUNCTION: Check Admin / Manager Access
+   HELPER: Only ADMIN & MANAGER allowed
 ---------------------------------------------------------*/
 const isAdminOrManager = (user) => {
   return user.role === "ADMIN" || user.role === "MANAGER";
@@ -22,15 +23,15 @@ router.get("/", protect, async (req, res) => {
     }
 
     const users = await User.find().select("-password");
-
     res.json({ success: true, users });
+
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
 /* --------------------------------------------------------
-   ADD NEW USER (ADMIN & MANAGER ONLY)
+   CREATE NEW USER
 ---------------------------------------------------------*/
 router.post("/", protect, async (req, res) => {
   try {
@@ -54,21 +55,22 @@ router.post("/", protect, async (req, res) => {
       password,
       role: role || "CUSTOMER",
       address,
-      gstNumber,
+      gstNumber
     });
 
     res.status(201).json({
       success: true,
       message: "User created successfully",
-      newUser,
+      newUser
     });
+
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
 /* --------------------------------------------------------
-   GET SINGLE USER (Admin/Manager OR User Himself)
+   GET SINGLE USER (Admin/Manager or User Himself)
 ---------------------------------------------------------*/
 router.get("/:id", protect, async (req, res) => {
   try {
@@ -77,17 +79,18 @@ router.get("/:id", protect, async (req, res) => {
     }
 
     const user = await User.findById(req.params.id).select("-password");
-
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user)
+      return res.status(404).json({ message: "User not found" });
 
     res.json({ success: true, user });
+
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
 /* --------------------------------------------------------
-   UPDATE USER (ADMIN & MANAGER ONLY)
+   UPDATE USER
 ---------------------------------------------------------*/
 router.put("/:id", protect, upload.single("profileImage"), async (req, res) => {
   try {
@@ -104,16 +107,15 @@ router.put("/:id", protect, upload.single("profileImage"), async (req, res) => {
       role,
       isActive,
       address,
-      gstNumber,
+      gstNumber
     };
 
-    // Image update
     if (req.file) {
       updateData.profileImage = `/uploads/profile/${req.file.filename}`;
     }
 
     const updatedUser = await User.findByIdAndUpdate(req.params.id, updateData, {
-      new: true,
+      new: true
     }).select("-password");
 
     if (!updatedUser)
@@ -122,15 +124,16 @@ router.put("/:id", protect, upload.single("profileImage"), async (req, res) => {
     res.json({
       success: true,
       message: "User updated successfully",
-      updatedUser,
+      updatedUser
     });
+
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
 /* --------------------------------------------------------
-   DELETE USER (ADMIN & MANAGER ONLY)
+   DELETE USER (ADMIN & MANAGER)
 ---------------------------------------------------------*/
 router.delete("/:id", protect, async (req, res) => {
   try {
@@ -139,18 +142,18 @@ router.delete("/:id", protect, async (req, res) => {
     }
 
     const deleted = await User.findByIdAndDelete(req.params.id);
-
     if (!deleted)
       return res.status(404).json({ message: "User not found" });
 
     res.json({ success: true, message: "User deleted successfully" });
+
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
 /* --------------------------------------------------------
-   TOGGLE ACTIVE/INACTIVE STATUS (ADMIN & MANAGER ONLY)
+   TOGGLE ACTIVE STATUS (ADMIN & MANAGER)
 ---------------------------------------------------------*/
 router.put("/:id/status", protect, async (req, res) => {
   try {
@@ -159,7 +162,6 @@ router.put("/:id/status", protect, async (req, res) => {
     }
 
     const user = await User.findById(req.params.id);
-
     if (!user)
       return res.status(404).json({ message: "User not found" });
 
@@ -169,8 +171,9 @@ router.put("/:id/status", protect, async (req, res) => {
     res.json({
       success: true,
       message: "Status updated successfully",
-      status: user.isActive,
+      status: user.isActive
     });
+
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
