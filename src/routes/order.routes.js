@@ -1,4 +1,3 @@
-// routes/order.routes.js
 const express = require("express");
 const Cart = require("../models/Cart");
 const Order = require("../models/Order");
@@ -7,18 +6,25 @@ const { protect } = require("../middleware/auth");
 
 const router = express.Router();
 
-/* ------------------------------------------------------------------
-   ADMIN: Get ALL Orders
------------------------------------------------------------------- */
+/* ====================================================================
+   ADMIN / MANAGER: Get ALL Orders
+==================================================================== */
 router.get("/all", protect, async (req, res) => {
   try {
-    if (req.user.role !== "ADMIN") {
+    const allowed = ["ADMIN", "MANAGER"];
+    if (!allowed.includes(req.user.role)) {
       return res.status(403).json({ message: "Access denied" });
     }
 
     const orders = await Order.find()
-      .populate({ path: "user", select: "name email phone role" })
-      .populate({ path: "items.product", select: "name price" })
+      .populate({
+        path: "user",
+        select: "name email phone role",
+      })
+      .populate({
+        path: "items.product",
+        select: "name price",
+      })
       .sort({ createdAt: -1 });
 
     res.json({ success: true, orders });
@@ -27,57 +33,70 @@ router.get("/all", protect, async (req, res) => {
   }
 });
 
-/* ------------------------------------------------------------------
-   ADMIN: Update Order Status
------------------------------------------------------------------- */
+/* ====================================================================
+   ADMIN / MANAGER: Update ORDER STATUS
+==================================================================== */
 router.put("/status/:id", protect, async (req, res) => {
   try {
-    if (req.user.role !== "ADMIN" || "MANAGER") {
+    const allowed = ["ADMIN", "MANAGER"];
+    if (!allowed.includes(req.user.role)) {
       return res.status(403).json({ message: "Access denied" });
     }
 
     const { status } = req.body;
-    if (!status) return res.status(400).json({ message: "Missing status" });
+    if (!status)
+      return res.status(400).json({ message: "Missing 'status' field" });
 
     const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
+    if (!order)
+      return res.status(404).json({ message: "Order not found" });
 
     order.orderStatus = status;
     await order.save();
 
-    res.json({ success: true, message: "Order status updated", order });
+    res.json({
+      success: true,
+      message: "Order status updated successfully",
+      order,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-/* ------------------------------------------------------------------
-   ADMIN: Delete Order
------------------------------------------------------------------- */
+/* ====================================================================
+   ADMIN / MANAGER: DELETE Order
+   (If you want ONLY ADMIN → tell me, I will restrict)
+==================================================================== */
 router.delete("/delete/:id", protect, async (req, res) => {
   try {
-    if (req.user.role !== "ADMIN") {
+    const allowed = ["ADMIN", "MANAGER"];
+    if (!allowed.includes(req.user.role)) {
       return res.status(403).json({ message: "Access denied" });
     }
 
     const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
+    if (!order)
+      return res.status(404).json({ message: "Order not found" });
 
     await order.deleteOne();
 
-    res.json({ success: true, message: "Order deleted successfully" });
+    res.json({
+      success: true,
+      message: "Order deleted successfully",
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-/* ------------------------------------------------------------------
-   USER: Get Own Orders
------------------------------------------------------------------- */
+/* ====================================================================
+   USER: Get their own orders
+==================================================================== */
 router.get("/", protect, async (req, res) => {
   try {
     const orders = await Order.find({ user: req.user.id })
-      .populate({ path: "items.product" })
+      .populate("items.product")
       .sort({ createdAt: -1 });
 
     res.json({ success: true, orders });
@@ -86,9 +105,9 @@ router.get("/", protect, async (req, res) => {
   }
 });
 
-/* ------------------------------------------------------------------
-   USER: Create Order (From Cart)
------------------------------------------------------------------- */
+/* ====================================================================
+   USER: Create Order from Cart
+==================================================================== */
 router.post("/create", protect, async (req, res) => {
   try {
     const cart = await Cart.findOne({ user: req.user.id }).populate(
@@ -99,6 +118,7 @@ router.post("/create", protect, async (req, res) => {
       return res.status(400).json({ message: "Cart is empty" });
     }
 
+    // Calculate total
     let total = 0;
     cart.items.forEach((item) => {
       total += item.product.price * item.qty;
@@ -132,11 +152,15 @@ router.post("/create", protect, async (req, res) => {
       await product.save();
     }
 
-    // Clear Cart
+    // Clear cart after order
     cart.items = [];
     await cart.save();
 
-    res.json({ success: true, message: "Order placed successfully", order });
+    res.json({
+      success: true,
+      message: "Order placed successfully",
+      order,
+    });
   } catch (err) {
     console.log("Order Create Error:", err.message);
     res.status(500).json({ message: err.message });
