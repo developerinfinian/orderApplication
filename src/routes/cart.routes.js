@@ -5,24 +5,37 @@ const { protect } = require("../middleware/auth");
 
 const router = express.Router();
 
-// ➤ Get User Cart
+/* ============================================================
+    GET USER CART
+============================================================ */
 router.get("/", protect, async (req, res) => {
   try {
-    const cart = await Cart.findOne({ user: req.user.id }).populate(
+    let cart = await Cart.findOne({ user: req.user.id }).populate(
       "items.product"
     );
 
+    if (!cart) {
+      return res.json({
+        success: true,
+        items: [],
+        totalItems: 0,
+      });
+    }
+
     res.json({
       success: true,
-      items: cart?.items || [],
-      totalItems: cart?.items?.length || 0,
+      items: cart.items,
+      totalItems: cart.items.length,
     });
   } catch (err) {
+    console.log("GET CART ERROR:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
 
-// ➤ Add item / Update qty
+/* ============================================================
+    ADD ITEM TO CART
+============================================================ */
 router.post("/add", protect, async (req, res) => {
   try {
     const { productId, qty } = req.body;
@@ -35,27 +48,79 @@ router.post("/add", protect, async (req, res) => {
 
     let cart = await Cart.findOne({ user: req.user.id });
 
-    if (!cart) cart = await Cart.create({ user: req.user.id, items: [] });
+    if (!cart) {
+      cart = await Cart.create({
+        user: req.user.id,
+        items: [],
+      });
+    }
 
-    const existingItem = cart.items.find(
+    const existing = cart.items.find(
       (i) => i.product.toString() === productId
     );
 
-    if (existingItem) existingItem.qty += qty;
-    else cart.items.push({ product: productId, qty });
+    if (existing) {
+      existing.qty += qty;
+    } else {
+      cart.items.push({ product: productId, qty });
+    }
 
     await cart.save();
 
-    res.json({ success: true, items: cart.items });
+    const populatedCart = await cart.populate("items.product");
+
+    res.json({
+      success: true,
+      items: populatedCart.items,
+    });
   } catch (err) {
+    console.log("ADD TO CART ERROR:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
 
-// ➤ Remove Item
+/* ============================================================
+    UPDATE QUANTITY (Increase / Decrease)
+============================================================ */
+router.put("/update", protect, async (req, res) => {
+  try {
+    const { productId, type } = req.body;
+
+    let cart = await Cart.findOne({ user: req.user.id });
+    if (!cart) return res.json({ success: true, items: [] });
+
+    const item = cart.items.find(
+      (i) => i.product.toString() === productId
+    );
+
+    if (!item) {
+      return res.status(404).json({ message: "Product not in cart" });
+    }
+
+    if (type === "inc") item.qty += 1;
+    if (type === "dec") item.qty = Math.max(1, item.qty - 1);
+
+    await cart.save();
+
+    const updatedCart = await cart.populate("items.product");
+
+    res.json({
+      success: true,
+      items: updatedCart.items,
+    });
+  } catch (err) {
+    console.log("UPDATE QTY ERROR:", err.message);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* ============================================================
+    REMOVE ITEM FROM CART
+============================================================ */
 router.delete("/:productId", protect, async (req, res) => {
   try {
     let cart = await Cart.findOne({ user: req.user.id });
+
     if (!cart) return res.json({ success: true, items: [] });
 
     cart.items = cart.items.filter(
@@ -63,8 +128,15 @@ router.delete("/:productId", protect, async (req, res) => {
     );
 
     await cart.save();
-    res.json({ success: true, items: cart.items });
+
+    const updatedCart = await cart.populate("items.product");
+
+    res.json({
+      success: true,
+      items: updatedCart.items,
+    });
   } catch (err) {
+    console.log("REMOVE ITEM ERROR:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
