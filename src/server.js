@@ -12,7 +12,7 @@ const orderRoutes = require("./routes/order.routes");
 const cartRoutes = require("./routes/cart.routes");
 const dealerorder = require("./routes/dealer.orders");
 const billRoutes = require("./routes/bill.routes");
-
+const adminstats=require("./routes/adminDashboard.routes");
 
 const app = express();
 
@@ -42,7 +42,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/bill", billRoutes);
-app.use("/api/dashboard", require("./routes/adminDashboard.routes"));
+app.use("/api/dashboard", adminstats);
 
 // test route
 app.get("/", (req, res) => {
