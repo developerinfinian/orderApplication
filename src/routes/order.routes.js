@@ -1,3 +1,4 @@
+// routes/order.routes.js
 const express = require("express");
 const Cart = require("../models/Cart");
 const Order = require("../models/Order");
@@ -5,6 +6,10 @@ const Product = require("../models/Product");
 const { protect } = require("../middleware/auth");
 
 const router = express.Router();
+
+/* ------------------------------------------------------------------
+   ADMIN: Get ALL Orders
+------------------------------------------------------------------ */
 router.get("/all", protect, async (req, res) => {
   try {
     if (req.user.role !== "ADMIN") {
@@ -12,14 +17,8 @@ router.get("/all", protect, async (req, res) => {
     }
 
     const orders = await Order.find()
-      .populate({
-        path: "user",
-        select: "name email phone role"
-      })
-      .populate({
-        path: "items.product",
-        select: "name price"
-      })
+      .populate({ path: "user", select: "name email phone role" })
+      .populate({ path: "items.product", select: "name price" })
       .sort({ createdAt: -1 });
 
     res.json({ success: true, orders });
@@ -28,8 +27,9 @@ router.get("/all", protect, async (req, res) => {
   }
 });
 
-
-// ➤ ADMIN: Update Order Status
+/* ------------------------------------------------------------------
+   ADMIN: Update Order Status
+------------------------------------------------------------------ */
 router.put("/status/:id", protect, async (req, res) => {
   try {
     if (req.user.role !== "ADMIN") {
@@ -37,6 +37,7 @@ router.put("/status/:id", protect, async (req, res) => {
     }
 
     const { status } = req.body;
+    if (!status) return res.status(400).json({ message: "Missing status" });
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
@@ -50,11 +51,33 @@ router.put("/status/:id", protect, async (req, res) => {
   }
 });
 
-// ➤ User Orders
+/* ------------------------------------------------------------------
+   ADMIN: Delete Order
+------------------------------------------------------------------ */
+router.delete("/delete/:id", protect, async (req, res) => {
+  try {
+    if (req.user.role !== "ADMIN") {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    await order.deleteOne();
+
+    res.json({ success: true, message: "Order deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* ------------------------------------------------------------------
+   USER: Get Own Orders
+------------------------------------------------------------------ */
 router.get("/", protect, async (req, res) => {
   try {
     const orders = await Order.find({ user: req.user.id })
-      .populate("items.product")
+      .populate({ path: "items.product" })
       .sort({ createdAt: -1 });
 
     res.json({ success: true, orders });
@@ -63,15 +86,18 @@ router.get("/", protect, async (req, res) => {
   }
 });
 
-// ➤ Place Order
+/* ------------------------------------------------------------------
+   USER: Create Order (From Cart)
+------------------------------------------------------------------ */
 router.post("/create", protect, async (req, res) => {
   try {
     const cart = await Cart.findOne({ user: req.user.id }).populate(
       "items.product"
     );
 
-    if (!cart || cart.items.length === 0)
+    if (!cart || cart.items.length === 0) {
       return res.status(400).json({ message: "Cart is empty" });
+    }
 
     let total = 0;
     cart.items.forEach((item) => {
@@ -106,15 +132,11 @@ router.post("/create", protect, async (req, res) => {
       await product.save();
     }
 
-    // Clear cart
+    // Clear Cart
     cart.items = [];
     await cart.save();
 
-    res.json({
-      success: true,
-      message: "Order placed successfully",
-      order,
-    });
+    res.json({ success: true, message: "Order placed successfully", order });
   } catch (err) {
     console.log("Order Create Error:", err.message);
     res.status(500).json({ message: err.message });
