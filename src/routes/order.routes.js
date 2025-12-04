@@ -5,6 +5,24 @@ const Product = require("../models/Product");
 const { protect } = require("../middleware/auth");
 
 const router = express.Router();
+// ➤ ADMIN: Get All Orders
+router.get("/all", protect, async (req, res) => {
+  try {
+    // Allow only ADMIN or SUPERADMIN
+    if (req.user.role !== "ADMIN") {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const orders = await Order.find()
+      .populate("user", "name email")
+      .populate("items.product")
+      .sort({ createdAt: -1 });
+
+    res.json({ success: true, orders });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 // ➤ Get User Orders
 router.get("/", protect, async (req, res) => {
