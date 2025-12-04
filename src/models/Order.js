@@ -1,8 +1,19 @@
 const mongoose = require("mongoose");
+const { v4: uuidv4 } = require("uuid");
 
 const orderSchema = new mongoose.Schema(
   {
-    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    orderId: {
+      type: String,
+      unique: true,
+      default: () => uuidv4(), // ✅ Auto generates a unique ID
+    },
+
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
 
     items: [
       {
@@ -11,15 +22,18 @@ const orderSchema = new mongoose.Schema(
       },
     ],
 
-    totalAmount: Number,
-
-    paymentStatus: { 
-      type: String, 
-      enum: ["PENDING", "PAID"], 
-      default: "PENDING" 
+    totalAmount: {
+      type: Number,
+      required: true,
     },
 
-    orderStatus: { 
+    paymentStatus: {
+      type: String,
+      enum: ["PENDING", "PAID"],
+      default: "PENDING",
+    },
+
+    orderStatus: {
       type: String,
       enum: ["PLACED", "PROCESSING", "DELIVERED", "CANCELLED"],
       default: "PLACED",
