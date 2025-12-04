@@ -2,6 +2,8 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
 exports.protect = async (req, res, next) => {
+  console.log("🔥 AUTH HEADER RECEIVED:", req.headers.authorization);  // ADD THIS
+
   let token =
     req.headers.authorization?.startsWith("Bearer") &&
     req.headers.authorization.split(" ")[1];
