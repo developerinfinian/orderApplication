@@ -6,38 +6,43 @@ const { protect } = require("../middleware/auth");
 
 const router = express.Router();
 
-// Admin or Manager only
-const isAdminOrManager = (user) => {
-  return user.role === "ADMIN" || user.role === "MANAGER";
-};
-/* -------------------------------------------------------
-   CHART DATA: Monthly Revenue, Daily Orders, Product Share
----------------------------------------------------------*/
+// ROLES CHECK
+const isAdminOrManager = (user) =>
+  user.role === "ADMIN" || user.role === "MANAGER";
+
+/* =====================================================
+    ⭐ GET DASHBOARD CHARTS (Monthly, Daily, Pie Chart)
+===================================================== */
 router.get("/charts", protect, async (req, res) => {
   try {
     if (!isAdminOrManager(req.user)) {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const currentYear = new Date().getFullYear();
-
-    // Monthly Revenue
+    // ----------------------------
+    // MONTHLY REVENUE CHART
+    // ----------------------------
     const monthly = await Order.aggregate([
       {
         $group: {
-          _id: { month: { $month: "$createdAt" } },
+          _id: {
+            month: { $month: "$createdAt" },
+            year: { $year: "$createdAt" }
+          },
           total: { $sum: "$totalAmount" }
         }
       },
-      { $sort: { "_id.month": 1 } }
+      { $sort: { "_id.year": 1, "_id.month": 1 } }
     ]);
 
-    // Daily Orders (last 7 days)
-    const last7Days = new Date();
-    last7Days.setDate(last7Days.getDate() - 7);
+    // ----------------------------
+    // LAST 7 DAYS ORDERS
+    // ----------------------------
+    const last7 = new Date();
+    last7.setDate(last7.getDate() - 7);
 
     const daily = await Order.aggregate([
-      { $match: { createdAt: { $gte: last7Days } } },
+      { $match: { createdAt: { $gte: last7 } } },
       {
         $group: {
           _id: { day: { $dayOfMonth: "$createdAt" } },
@@ -47,7 +52,9 @@ router.get("/charts", protect, async (req, res) => {
       { $sort: { "_id.day": 1 } }
     ]);
 
-    // Product Sales Pie Chart
+    // ----------------------------
+    // PRODUCT SALES PIE CHART
+    // ----------------------------
     const products = await Order.aggregate([
       { $unwind: "$items" },
       {
@@ -62,79 +69,74 @@ router.get("/charts", protect, async (req, res) => {
     res.json({
       success: true,
       charts: {
-        monthlyRevenue: monthly,
-        dailyOrders: daily,
-        productSales: products
+        monthlyRevenue: monthly || [],
+        dailyOrders: daily || [],
+        productSales: products || []
       }
     });
 
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.log("CHART ERROR:", err.message);
+    res.status(500).json({ message: "Failed to load charts" });
   }
 });
 
-/* -------------------------------------------------------
-      ADMIN DASHBOARD STATS API
--------------------------------------------------------- */
+/* =====================================================
+    ⭐ ADMIN DASHBOARD STATS (Top Cards + Recent Orders)
+===================================================== */
 router.get("/stats", protect, async (req, res) => {
   try {
     if (!isAdminOrManager(req.user)) {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // Total Users
+    // ============ TOTAL USERS ============
     const totalUsers = await User.countDocuments();
 
-    // Total Orders
+    // ============ TOTAL ORDERS ============
     const totalOrders = await Order.countDocuments();
 
-    // Today's Revenue
+    // ============ TODAY'S REVENUE ============
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const todaysOrders = await Order.find({
-      createdAt: { $gte: today },
-    });
-
+    const todaysOrders = await Order.find({ createdAt: { $gte: today } });
     const todaysRevenue = todaysOrders.reduce(
-      (sum, o) => sum + o.totalAmount,
+      (sum, o) => sum + (o.totalAmount || 0),
       0
     );
 
-    // Monthly Revenue
+    // ============ MONTHLY REVENUE ============
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const monthOrders = await Order.find({
-      createdAt: { $gte: monthStart },
-    });
-
+    const monthOrders = await Order.find({ createdAt: { $gte: monthStart } });
     const monthlyRevenue = monthOrders.reduce(
-      (sum, o) => sum + o.totalAmount,
+      (sum, o) => sum + (o.totalAmount || 0),
       0
     );
 
-    // Top Products
-    const productAggregation = await Order.aggregate([
+    // ============ TOP 5 PRODUCTS ============
+    const productAgg = await Order.aggregate([
       { $unwind: "$items" },
       {
         $group: {
           _id: "$items.product",
-          totalQty: { $sum: "$items.qty" },
-        },
+          qty: { $sum: "$items.qty" }
+        }
       },
-      { $sort: { totalQty: -1 } },
-      { $limit: 5 },
+      { $sort: { qty: -1 } },
+      { $limit: 5 }
     ]);
 
     const topProducts = await Product.find({
-      _id: { $in: productAggregation.map((p) => p._id) },
+      _id: { $in: productAgg.map((p) => p._id) }
     });
 
-    // Last 5 Orders
+    // ============ LAST 5 ORDERS ============
     const recentOrders = await Order.find()
-      .populate("user", "name role")
+      .populate("user", "name email role")
       .sort({ createdAt: -1 })
       .limit(5);
 
@@ -146,11 +148,13 @@ router.get("/stats", protect, async (req, res) => {
         todaysRevenue,
         monthlyRevenue,
         topProducts,
-        recentOrders,
-      },
+        recentOrders
+      }
     });
+
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.log("STATS ERROR:", err.message);
+    res.status(500).json({ message: "Failed to load stats" });
   }
 });
 
