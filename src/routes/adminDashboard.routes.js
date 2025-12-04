@@ -1,3 +1,4 @@
+// routes/admindashboard.routes.js
 const express = require("express");
 const Order = require("../models/Order");
 const User = require("../models/User");
@@ -27,12 +28,12 @@ router.get("/charts", protect, async (req, res) => {
         $group: {
           _id: {
             month: { $month: "$createdAt" },
-            year: { $year: "$createdAt" }
+            year: { $year: "$createdAt" },
           },
-          total: { $sum: "$totalAmount" }
-        }
+          total: { $sum: "$totalAmount" },
+        },
       },
-      { $sort: { "_id.year": 1, "_id.month": 1 } }
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
     ]);
 
     // ----------------------------
@@ -46,10 +47,10 @@ router.get("/charts", protect, async (req, res) => {
       {
         $group: {
           _id: { day: { $dayOfMonth: "$createdAt" } },
-          count: { $sum: 1 }
-        }
+          count: { $sum: 1 },
+        },
       },
-      { $sort: { "_id.day": 1 } }
+      { $sort: { "_id.day": 1 } },
     ]);
 
     // ----------------------------
@@ -60,10 +61,10 @@ router.get("/charts", protect, async (req, res) => {
       {
         $group: {
           _id: "$items.product",
-          qty: { $sum: "$items.qty" }
-        }
+          qty: { $sum: "$items.qty" },
+        },
       },
-      { $sort: { qty: -1 } }
+      { $sort: { qty: -1 } },
     ]);
 
     res.json({
@@ -71,10 +72,9 @@ router.get("/charts", protect, async (req, res) => {
       charts: {
         monthlyRevenue: monthly || [],
         dailyOrders: daily || [],
-        productSales: products || []
-      }
+        productSales: products || [],
+      },
     });
-
   } catch (err) {
     console.log("CHART ERROR:", err.message);
     res.status(500).json({ message: "Failed to load charts" });
@@ -100,7 +100,10 @@ router.get("/stats", protect, async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const todaysOrders = await Order.find({ createdAt: { $gte: today } });
+    const todaysOrders = await Order.find({
+      createdAt: { $gte: today },
+    });
+
     const todaysRevenue = todaysOrders.reduce(
       (sum, o) => sum + (o.totalAmount || 0),
       0
@@ -111,7 +114,10 @@ router.get("/stats", protect, async (req, res) => {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const monthOrders = await Order.find({ createdAt: { $gte: monthStart } });
+    const monthOrders = await Order.find({
+      createdAt: { $gte: monthStart },
+    });
+
     const monthlyRevenue = monthOrders.reduce(
       (sum, o) => sum + (o.totalAmount || 0),
       0
@@ -123,15 +129,15 @@ router.get("/stats", protect, async (req, res) => {
       {
         $group: {
           _id: "$items.product",
-          qty: { $sum: "$items.qty" }
-        }
+          qty: { $sum: "$items.qty" },
+        },
       },
       { $sort: { qty: -1 } },
-      { $limit: 5 }
+      { $limit: 5 },
     ]);
 
     const topProducts = await Product.find({
-      _id: { $in: productAgg.map((p) => p._id) }
+      _id: { $in: productAgg.map((p) => p._id) },
     });
 
     // ============ LAST 5 ORDERS ============
@@ -147,11 +153,10 @@ router.get("/stats", protect, async (req, res) => {
         totalOrders,
         todaysRevenue,
         monthlyRevenue,
-        topProducts,
-        recentOrders
-      }
+        topProducts: topProducts || [],
+        recentOrders: recentOrders || [],
+      },
     });
-
   } catch (err) {
     console.log("STATS ERROR:", err.message);
     res.status(500).json({ message: "Failed to load stats" });
