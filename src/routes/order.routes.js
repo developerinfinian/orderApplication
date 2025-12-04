@@ -5,8 +5,6 @@ const Product = require("../models/Product");
 const { protect } = require("../middleware/auth");
 
 const router = express.Router();
-
-// ➤ ADMIN: Get All Orders
 router.get("/all", protect, async (req, res) => {
   try {
     if (req.user.role !== "ADMIN") {
@@ -14,8 +12,14 @@ router.get("/all", protect, async (req, res) => {
     }
 
     const orders = await Order.find()
-      .populate("user", "name email phone")
-      .populate("items.product")
+      .populate({
+        path: "user",
+        select: "name email phone role"
+      })
+      .populate({
+        path: "items.product",
+        select: "name price"
+      })
       .sort({ createdAt: -1 });
 
     res.json({ success: true, orders });
@@ -23,6 +27,7 @@ router.get("/all", protect, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
 
 // ➤ ADMIN: Update Order Status
 router.put("/status/:id", protect, async (req, res) => {
