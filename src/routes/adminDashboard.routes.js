@@ -7,12 +7,12 @@ const { protect } = require("../middleware/auth");
 
 const router = express.Router();
 
-// ROLES CHECK
+// CHECK ADMIN / MANAGER ROLE
 const isAdminOrManager = (user) =>
   user.role === "ADMIN" || user.role === "MANAGER";
 
 /* =====================================================
-    ⭐ GET DASHBOARD CHARTS (Monthly, Daily, Pie Chart)
+    ⭐ GET DASHBOARD CHARTS (Monthly, Daily, Product Pie)
 ===================================================== */
 router.get("/charts", protect, async (req, res) => {
   try {
@@ -20,9 +20,7 @@ router.get("/charts", protect, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // ----------------------------
-    // MONTHLY REVENUE CHART
-    // ----------------------------
+    // MONTHLY REVENUE
     const monthly = await Order.aggregate([
       {
         $group: {
@@ -36,9 +34,7 @@ router.get("/charts", protect, async (req, res) => {
       { $sort: { "_id.year": 1, "_id.month": 1 } },
     ]);
 
-    // ----------------------------
     // LAST 7 DAYS ORDERS
-    // ----------------------------
     const last7 = new Date();
     last7.setDate(last7.getDate() - 7);
 
@@ -53,9 +49,7 @@ router.get("/charts", protect, async (req, res) => {
       { $sort: { "_id.day": 1 } },
     ]);
 
-    // ----------------------------
-    // PRODUCT SALES PIE CHART
-    // ----------------------------
+    // PRODUCT SALES
     const products = await Order.aggregate([
       { $unwind: "$items" },
       {
@@ -82,7 +76,7 @@ router.get("/charts", protect, async (req, res) => {
 });
 
 /* =====================================================
-    ⭐ ADMIN DASHBOARD STATS (Top Cards + Recent Orders)
+    ⭐ ADMIN DASHBOARD STATS (Cards + Hot Products + Stock)
 ===================================================== */
 router.get("/stats", protect, async (req, res) => {
   try {
@@ -90,49 +84,44 @@ router.get("/stats", protect, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // ============ TOTAL USERS ============
+    // TOTAL USERS
     const totalUsers = await User.countDocuments();
 
-    // ============ TOTAL ORDERS ============
+    // TOTAL ORDERS
     const totalOrders = await Order.countDocuments();
 
-    // ============ TODAY'S REVENUE ============
+    // TODAY REVENUE
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
-    const todaysOrders = await Order.find({
-      createdAt: { $gte: today },
-    });
+    const todaysOrders = await Order.find({ createdAt: { $gte: today } });
 
     const todaysRevenue = todaysOrders.reduce(
       (sum, o) => sum + (o.totalAmount || 0),
       0
     );
 
-    // ============ MONTHLY REVENUE ============
+    // MONTHLY REVENUE
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const monthOrders = await Order.find({
-      createdAt: { $gte: monthStart },
-    });
+    const monthOrders = await Order.find({ createdAt: { $gte: monthStart } });
 
     const monthlyRevenue = monthOrders.reduce(
       (sum, o) => sum + (o.totalAmount || 0),
       0
     );
 
-    // ============ TOP 5 PRODUCTS ============
+    // TOP PRODUCTS (PRODUCT NAME + QTY)
     const productAgg = await Order.aggregate([
       { $unwind: "$items" },
       {
         $group: {
           _id: "$items.product",
-          qty: { $sum: "$items.qty" },
+          totalQty: { $sum: "$items.qty" },
         },
       },
-      { $sort: { qty: -1 } },
+      { $sort: { totalQty: -1 } },
       { $limit: 5 },
     ]);
 
@@ -140,11 +129,25 @@ router.get("/stats", protect, async (req, res) => {
       _id: { $in: productAgg.map((p) => p._id) },
     });
 
-    // ============ LAST 5 ORDERS ============
+    // MERGE PRODUCT NAME + QTY
+    const hotProducts = topProducts.map((p) => ({
+      name: p.name,
+      stock: p.stock,
+      totalQty:
+        productAgg.find((x) => x._id.toString() === p._id.toString())?.totalQty ||
+        0,
+    }));
+
+    // LAST 5 ORDERS
     const recentOrders = await Order.find()
       .populate("user", "name email role")
       .sort({ createdAt: -1 })
       .limit(5);
+
+    // LOW STOCK PRODUCTS
+    const lowStock = await Product.find({ stock: { $lte: 10 } })
+      .sort({ stock: 1 })
+      .limit(10);
 
     res.json({
       success: true,
@@ -153,8 +156,9 @@ router.get("/stats", protect, async (req, res) => {
         totalOrders,
         todaysRevenue,
         monthlyRevenue,
-        topProducts: topProducts || [],
-        recentOrders: recentOrders || [],
+        topProducts: hotProducts,
+        lowStock,
+        recentOrders,
       },
     });
   } catch (err) {
