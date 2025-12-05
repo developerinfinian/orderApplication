@@ -4,7 +4,9 @@ const Product = require("../models/Product");
 
 const router = express.Router();
 
-// 📌 GET ALL ACTIVE PRODUCTS (public)
+/* ============================================================
+   PUBLIC: GET ALL ACTIVE PRODUCTS
+============================================================ */
 router.get("/", async (req, res) => {
   try {
     const { search } = req.query;
@@ -21,20 +23,31 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-// 🔐 Only Admin should see this later — currently open until Auth setup done
+
+/* ============================================================
+   ADMIN: LOW STOCK ALERT GROUPED OUTPUT
+============================================================ */
 router.get("/low-stock", async (req, res) => {
   try {
-    const products = await Product.find({
-      alertLevel: { $in: ["CRITICAL", "LOW", "WARNING"] }
-    });
+    const all = await Product.find({
+      alertLevel: { $in: ["CRITICAL", "LOW", "WARNING"] },
+    }).sort({ stockQty: 1 });
 
-    res.json({ success: true, products });
+    const grouped = {
+      critical: all.filter((p) => p.alertLevel === "CRITICAL"),
+      low: all.filter((p) => p.alertLevel === "LOW"),
+      warning: all.filter((p) => p.alertLevel === "WARNING"),
+    };
+
+    return res.json(grouped);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// 📌 GET PRODUCT BY ID (public)
+/* ============================================================
+   PUBLIC: GET PRODUCT BY ID
+============================================================ */
 router.get("/:id", async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
@@ -52,10 +65,12 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// 📌 CREATE PRODUCT (NO TOKEN – DEV MODE)
+/* ============================================================
+   CREATE PRODUCT (DEV MODE)
+============================================================ */
 router.post("/", async (req, res) => {
   try {
-    const { name, price } = req.body;
+    const { name, price, stockQty } = req.body;
 
     if (!name || !price) {
       return res
@@ -63,7 +78,17 @@ router.post("/", async (req, res) => {
         .json({ success: false, message: "Name & Price are required!" });
     }
 
-    const product = await Product.create(req.body);
+    const product = await Product.create({
+      ...req.body,
+      alertLevel:
+        stockQty < 5
+          ? "CRITICAL"
+          : stockQty < 20
+          ? "LOW"
+          : stockQty < 50
+          ? "WARNING"
+          : "NONE",
+    });
 
     return res.status(201).json({
       success: true,
@@ -75,9 +100,23 @@ router.post("/", async (req, res) => {
   }
 });
 
-// 📌 UPDATE PRODUCT (NO TOKEN – DEV MODE)
+/* ============================================================
+   UPDATE PRODUCT (DEV MODE)
+============================================================ */
 router.patch("/:id", async (req, res) => {
   try {
+    // Auto update alert level based on stock change
+    if (req.body.stockQty !== undefined) {
+      req.body.alertLevel =
+        req.body.stockQty < 5
+          ? "CRITICAL"
+          : req.body.stockQty < 20
+          ? "LOW"
+          : req.body.stockQty < 50
+          ? "WARNING"
+          : "NONE";
+    }
+
     const product = await Product.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -100,7 +139,9 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-// 📌 DELETE PRODUCT (NO TOKEN – DEV MODE)
+/* ============================================================
+   DELETE PRODUCT
+============================================================ */
 router.delete("/:id", async (req, res) => {
   try {
     const product = await Product.findByIdAndDelete(req.params.id);
