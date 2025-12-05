@@ -1,4 +1,3 @@
-// backend/routes/product.routes.js
 const express = require("express");
 const Product = require("../models/Product");
 
@@ -25,7 +24,7 @@ router.get("/", async (req, res) => {
 });
 
 /* ============================================================
-   ADMIN: LOW STOCK ALERT GROUPED OUTPUT
+   🚨 LOW STOCK FIRST — MUST COME BEFORE :id ROUTE
 ============================================================ */
 router.get("/low-stock", async (req, res) => {
   try {
@@ -105,7 +104,6 @@ router.post("/", async (req, res) => {
 ============================================================ */
 router.patch("/:id", async (req, res) => {
   try {
-    // Auto update alert level based on stock change
     if (req.body.stockQty !== undefined) {
       req.body.alertLevel =
         req.body.stockQty < 5
@@ -117,11 +115,9 @@ router.patch("/:id", async (req, res) => {
           : "NONE";
     }
 
-    const product = await Product.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true }
-    );
+    const product = await Product.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+    });
 
     if (!product) {
       return res
