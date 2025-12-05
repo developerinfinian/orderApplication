@@ -65,8 +65,44 @@ router.put("/status/:id", protect, async (req, res) => {
 });
 
 /* ====================================================================
+   ⭐ NEW: ADMIN / MANAGER — Add Invoice Number
+   → Automatically marks order as COMPLETED
+==================================================================== */
+router.put("/invoice/:id", protect, async (req, res) => {
+  try {
+    const allowed = ["ADMIN", "MANAGER"];
+    if (!allowed.includes(req.user.role)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const { invoiceNumber } = req.body;
+
+    if (!invoiceNumber || invoiceNumber.trim() === "") {
+      return res.status(400).json({ message: "Invoice number required" });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // Save invoice
+    order.invoiceNumber = invoiceNumber;
+    order.orderStatus = "COMPLETED"; // Auto-complete
+    await order.save();
+
+    res.json({
+      success: true,
+      message: "Invoice added & order marked as completed",
+      order,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* ====================================================================
    ADMIN / MANAGER: DELETE Order
-   (If you want ONLY ADMIN → tell me, I will restrict)
 ==================================================================== */
 router.delete("/delete/:id", protect, async (req, res) => {
   try {
@@ -131,7 +167,7 @@ router.post("/create", protect, async (req, res) => {
         qty: i.qty,
       })),
       totalAmount: total,
-      orderStatus: "PLACED",
+      orderStatus: "PENDING",
       paymentStatus: "PENDING",
     });
 
@@ -152,7 +188,7 @@ router.post("/create", protect, async (req, res) => {
       await product.save();
     }
 
-    // Clear cart after order
+    // Clear cart
     cart.items = [];
     await cart.save();
 
