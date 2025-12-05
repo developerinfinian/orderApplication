@@ -24,21 +24,36 @@ router.get("/", async (req, res) => {
 });
 
 /* ============================================================
-   🚨 LOW STOCK FIRST — MUST COME BEFORE :id ROUTE
+   🚨 LOW STOCK — AUTO FIX alertLevel FOR ALL PRODUCTS
 ============================================================ */
 router.get("/low-stock", async (req, res) => {
   try {
-    const all = await Product.find({
-      alertLevel: { $in: ["CRITICAL", "LOW", "WARNING"] },
-    }).sort({ stockQty: 1 });
+    let allProducts = await Product.find().sort({ stockQty: 1 });
 
-    const grouped = {
-      critical: all.filter((p) => p.alertLevel === "CRITICAL"),
-      low: all.filter((p) => p.alertLevel === "LOW"),
-      warning: all.filter((p) => p.alertLevel === "WARNING"),
-    };
+    // 🛠 Auto update missing or incorrect alertLevel
+    for (const p of allProducts) {
+      let level = "NONE";
 
-    return res.json(grouped);
+      if (p.stockQty < 5) level = "CRITICAL";
+      else if (p.stockQty < 20) level = "LOW";
+      else if (p.stockQty < 50) level = "WARNING";
+
+      if (p.alertLevel !== level) {
+        p.alertLevel = level;
+        await p.save();
+      }
+    }
+
+    // Now filter correctly
+    const critical = allProducts.filter((p) => p.alertLevel === "CRITICAL");
+    const low = allProducts.filter((p) => p.alertLevel === "LOW");
+    const warning = allProducts.filter((p) => p.alertLevel === "WARNING");
+
+    return res.json({
+      critical,
+      low,
+      warning,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -65,7 +80,7 @@ router.get("/:id", async (req, res) => {
 });
 
 /* ============================================================
-   CREATE PRODUCT (DEV MODE)
+   CREATE PRODUCT
 ============================================================ */
 router.post("/", async (req, res) => {
   try {
@@ -77,16 +92,15 @@ router.post("/", async (req, res) => {
         .json({ success: false, message: "Name & Price are required!" });
     }
 
+    let alertLevel = "NONE";
+
+    if (stockQty < 5) alertLevel = "CRITICAL";
+    else if (stockQty < 20) alertLevel = "LOW";
+    else if (stockQty < 50) alertLevel = "WARNING";
+
     const product = await Product.create({
       ...req.body,
-      alertLevel:
-        stockQty < 5
-          ? "CRITICAL"
-          : stockQty < 20
-          ? "LOW"
-          : stockQty < 50
-          ? "WARNING"
-          : "NONE",
+      alertLevel,
     });
 
     return res.status(201).json({
@@ -100,17 +114,19 @@ router.post("/", async (req, res) => {
 });
 
 /* ============================================================
-   UPDATE PRODUCT (DEV MODE)
+   UPDATE PRODUCT — AUTO UPDATE ALERT LEVEL
 ============================================================ */
 router.patch("/:id", async (req, res) => {
   try {
     if (req.body.stockQty !== undefined) {
+      const qty = req.body.stockQty;
+
       req.body.alertLevel =
-        req.body.stockQty < 5
+        qty < 5
           ? "CRITICAL"
-          : req.body.stockQty < 20
+          : qty < 20
           ? "LOW"
-          : req.body.stockQty < 50
+          : qty < 50
           ? "WARNING"
           : "NONE";
     }
