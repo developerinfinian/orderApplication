@@ -1,3 +1,4 @@
+// models/Order.js
 const mongoose = require("mongoose");
 const crypto = require("crypto");
 
@@ -6,7 +7,7 @@ const orderSchema = new mongoose.Schema(
     orderId: {
       type: String,
       unique: true,
-      default: () => crypto.randomUUID(), // ✅ built-in Node function
+      default: () => crypto.randomUUID(),
     },
 
     user: {
@@ -35,8 +36,14 @@ const orderSchema = new mongoose.Schema(
 
     orderStatus: {
       type: String,
-      enum: ["PLACED", "PROCESSING", "DELIVERED", "CANCELLED"],
-      default: "PLACED",
+      enum: ["PENDING", "PROCESSING", "COMPLETED", "CANCELLED"],
+      default: "PENDING",
+    },
+
+    // ⭐ NEW FIELD
+    invoiceNumber: {
+      type: String,
+      default: "",
     },
   },
   { timestamps: true }
