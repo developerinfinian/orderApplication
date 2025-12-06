@@ -1,7 +1,7 @@
 // routes/user.routes.js
 const express = require("express");
 const User = require("../models/User");
-const upload = require("../middleware/upload");
+const upload = require("../middleware/upload"); // <-- Multer here
 const { protect } = require("../middleware/auth");
 
 const router = express.Router();
@@ -31,9 +31,9 @@ router.get("/", protect, async (req, res) => {
 });
 
 /* --------------------------------------------------------
-   CREATE NEW USER
+   CREATE NEW USER  (WITH OPTIONAL IMAGE)
 ---------------------------------------------------------*/
-router.post("/", protect, async (req, res) => {
+router.post("/", protect, upload.single("profileImage"), async (req, res) => {
   try {
     if (!isAdminOrManager(req.user)) {
       return res.status(403).json({ message: "Access denied" });
@@ -41,12 +41,21 @@ router.post("/", protect, async (req, res) => {
 
     const { name, email, phone, password, role, address, gstNumber } = req.body;
 
-    if (!name || !email || !phone || !password)
+    // Only required fields checked
+    if (!name || !email || !phone || !password) {
       return res.status(400).json({ message: "All fields required" });
+    }
 
+    // Check duplicate email
     const exists = await User.findOne({ email });
     if (exists)
       return res.status(400).json({ message: "Email already exists" });
+
+    // Optional image
+    let profileImagePath = "";
+    if (req.file) {
+      profileImagePath = "/uploads/" + req.file.filename;
+    }
 
     const newUser = await User.create({
       name,
@@ -54,14 +63,15 @@ router.post("/", protect, async (req, res) => {
       phone,
       password,
       role: role || "CUSTOMER",
-      address,
-      gstNumber
+      address: address || "",
+      gstNumber: gstNumber || "",
+      profileImage: profileImagePath,
     });
 
     res.status(201).json({
       success: true,
       message: "User created successfully",
-      newUser
+      newUser,
     });
 
   } catch (err) {
@@ -70,10 +80,11 @@ router.post("/", protect, async (req, res) => {
 });
 
 /* --------------------------------------------------------
-   GET SINGLE USER (Admin/Manager or User Himself)
+   GET SINGLE USER 
 ---------------------------------------------------------*/
 router.get("/:id", protect, async (req, res) => {
   try {
+    // Allow Admin/Manager OR the user himself
     if (!isAdminOrManager(req.user) && req.user._id.toString() !== req.params.id) {
       return res.status(403).json({ message: "Access denied" });
     }
@@ -90,7 +101,7 @@ router.get("/:id", protect, async (req, res) => {
 });
 
 /* --------------------------------------------------------
-   UPDATE USER
+   UPDATE USER  (WITH OPTIONAL IMAGE)
 ---------------------------------------------------------*/
 router.put("/:id", protect, upload.single("profileImage"), async (req, res) => {
   try {
@@ -107,16 +118,19 @@ router.put("/:id", protect, upload.single("profileImage"), async (req, res) => {
       role,
       isActive,
       address,
-      gstNumber
+      gstNumber,
     };
 
+    // If new image uploaded
     if (req.file) {
-      updateData.profileImage = `/uploads/profile/${req.file.filename}`;
+      updateData.profileImage = "/uploads/" + req.file.filename;
     }
 
-    const updatedUser = await User.findByIdAndUpdate(req.params.id, updateData, {
-      new: true
-    }).select("-password");
+    const updatedUser = await User.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true }
+    ).select("-password");
 
     if (!updatedUser)
       return res.status(404).json({ message: "User not found" });
@@ -124,7 +138,7 @@ router.put("/:id", protect, upload.single("profileImage"), async (req, res) => {
     res.json({
       success: true,
       message: "User updated successfully",
-      updatedUser
+      updatedUser,
     });
 
   } catch (err) {
@@ -171,7 +185,7 @@ router.put("/:id/status", protect, async (req, res) => {
     res.json({
       success: true,
       message: "Status updated successfully",
-      status: user.isActive
+      status: user.isActive,
     });
 
   } catch (err) {
