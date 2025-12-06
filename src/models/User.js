@@ -5,10 +5,10 @@ const ALLOWED_ROLES = ["ADMIN", "MANAGER", "DEALER", "CUSTOMER"];
 
 const userSchema = new mongoose.Schema(
   {
-    name: { type: String, required: false, trim: true },
-    email: { type: String, required: false, unique: true, lowercase: true },
-    phone: { type: String, required: false, unique: true, trim: true },
-    password: { type: String, required: false, minlength: 6 },
+    name: { type: String, required: true, trim: true },
+    email: { type: String, required: true, unique: true, lowercase: true },
+    phone: { type: String, required: true, unique: true, trim: true },
+    password: { type: String, required: true, minlength: 6 },
     role: { type: String, enum: ALLOWED_ROLES, default: "CUSTOMER" },
     address: { type: String, default: "" },
     gstNumber: { type: String, trim: true, default: "" },
