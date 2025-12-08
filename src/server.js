@@ -43,6 +43,7 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/bill", billRoutes);
 app.use("/api/dashboard", adminstats);
+app.use("/uploads", express.static(path.join(__dirname, "src/uploads")));
 
 // test route
 app.get("/", (req, res) => {
