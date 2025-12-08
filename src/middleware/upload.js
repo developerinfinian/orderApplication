@@ -11,12 +11,13 @@ if (!fs.existsSync(uploadPath)) {
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadPath);
+    cb(null, path.join(__dirname, "../uploads/products/"));
   },
   filename: (req, file, cb) => {
     cb(null, "product_" + Date.now() + path.extname(file.originalname));
   },
 });
+
 
 const upload = multer({ storage });
 
