@@ -4,7 +4,7 @@ const cors = require("cors");
 const morgan = require("morgan");
 const connectDB = require("./config/db");
 const errorHandler = require("./middleware/errorHandler");
-
+const path = require("path");
 const authRoutes = require("./routes/auth.routes");
 const userRoutes = require("./routes/user.routes");
 const productRoutes = require("./routes/product.routes");
