@@ -6,13 +6,14 @@ const { protect } = require("../middleware/auth");
 const router = express.Router();
 
 /* ============================================================
-    GET USER CART
+    GET USER CART  (FIXED FULL RESPONSE)
 ============================================================ */
 router.get("/", protect, async (req, res) => {
   try {
-    let cart = await Cart.findOne({ user: req.user.id }).populate(
-      "items.product"
-    );
+    let cart = await Cart.findOne({ user: req.user.id }).populate({
+      path: "items.product",
+      select: "name price image stockQty",
+    });
 
     if (!cart) {
       return res.json({
@@ -22,9 +23,9 @@ router.get("/", protect, async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
-      items: cart.items,
+      items: cart.items, // UPDATED: UI expects this exactly
       totalItems: cart.items.length,
     });
   } catch (err) {
@@ -41,7 +42,8 @@ router.post("/add", protect, async (req, res) => {
     const { productId, qty } = req.body;
 
     const product = await Product.findById(productId);
-    if (!product) return res.status(404).json({ message: "Product not found" });
+    if (!product)
+      return res.status(404).json({ message: "Product not found" });
 
     if (product.stockQty <= 0)
       return res.status(400).json({ message: "Out of Stock" });
@@ -80,7 +82,7 @@ router.post("/add", protect, async (req, res) => {
 });
 
 /* ============================================================
-    UPDATE QUANTITY (Increase / Decrease)
+    UPDATE QTY
 ============================================================ */
 router.put("/update", protect, async (req, res) => {
   try {
@@ -115,7 +117,7 @@ router.put("/update", protect, async (req, res) => {
 });
 
 /* ============================================================
-    REMOVE ITEM FROM CART
+    REMOVE ITEM
 ============================================================ */
 router.delete("/:productId", protect, async (req, res) => {
   try {
