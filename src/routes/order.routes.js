@@ -202,5 +202,56 @@ router.post("/create", protect, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+/* ============================================================
+   USER: Create Order for Single Cart Item
+============================================================ */
+router.post("/create-single", protect, async (req, res) => {
+  try {
+    const { productId } = req.body;
+
+    const cart = await Cart.findOne({ user: req.user.id }).populate(
+      "items.product"
+    );
+
+    if (!cart) return res.status(400).json({ message: "Cart not found" });
+
+    const item = cart.items.find(
+      (i) => i.product._id.toString() === productId
+    );
+
+    if (!item)
+      return res.status(404).json({ message: "Item not found in cart" });
+
+    const total = item.product.price * item.qty;
+
+    const order = await Order.create({
+      user: req.user.id,
+      items: [
+        {
+          product: item.product._id,
+          qty: item.qty,
+        },
+      ],
+      totalAmount: total,
+      orderStatus: "PENDING",
+      paymentStatus: "PENDING",
+    });
+
+    // Reduce stock
+    const product = await Product.findById(item.product._id);
+    product.stockQty -= item.qty;
+    await product.save();
+
+    // Remove item from cart
+    cart.items = cart.items.filter(
+      (i) => i.product._id.toString() !== productId
+    );
+    await cart.save();
+
+    res.json({ success: true, order });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 module.exports = router;
