@@ -244,35 +244,79 @@ router.get("/", protect, async (req, res) => {
 /* ============================================================
    CREATE ORDER FROM CART (Retail for user, Dealer for dealer)
 ============================================================ */
+/* ============================================================
+   CREATE ORDER (supports full cart + single item)
+============================================================ */
 router.post("/create", protect, async (req, res) => {
   try {
-    const cart = await Cart.findOne({ user: req.user.id }).populate(
-      "items.product"
-    );
+    const { productId, qty = 1 } = req.body;
 
-    if (!cart || cart.items.length === 0)
-      return res.status(400).json({ message: "Cart is empty" });
+    let itemsToOrder = [];
 
+    // -----------------------------------------
+    // CASE 1: SINGLE ITEM ORDER (Buy Now)
+    // -----------------------------------------
+    if (productId) {
+      const product = await Product.findById(productId);
+
+      if (!product)
+        return res.status(404).json({ message: "Product not found" });
+
+      if (product.stockQty < qty)
+        return res.status(400).json({
+          message: `Only ${product.stockQty} available`,
+        });
+
+      itemsToOrder.push({
+        product,
+        qty,
+      });
+
+    } else {
+      // -----------------------------------------
+      // CASE 2: FULL CART ORDER
+      // -----------------------------------------
+      const cart = await Cart.findOne({ user: req.user.id }).populate(
+        "items.product"
+      );
+
+      if (!cart || cart.items.length === 0)
+        return res.status(400).json({ message: "Cart is empty" });
+
+      // filter out null/deleted product entries
+      cart.items = cart.items.filter((i) => i.product !== null);
+
+      if (cart.items.length === 0)
+        return res.status(400).json({ message: "Cart contains invalid items" });
+
+      itemsToOrder = cart.items;
+    }
+
+    // -----------------------------------------
+    // CALCULATE PRICING
+    // -----------------------------------------
     let total = 0;
     let finalAmount = 0;
-    let dealerPriceUsed = false;
+    let dealerPriceUsed = req.user.role === "DEALER";
 
-    for (const i of cart.items) {
-      const prod = i.product;
+    for (const i of itemsToOrder) {
+      const p = i.product;
 
-      total += prod.retailPrice * i.qty;
+      total += p.retailPrice * i.qty;
 
       if (req.user.role === "DEALER") {
-        dealerPriceUsed = true;
-        finalAmount += prod.dealerPrice * i.qty;
+        finalAmount += p.dealerPrice * i.qty;
       } else {
-        finalAmount += prod.retailPrice * i.qty;
+        finalAmount += p.retailPrice * i.qty;
       }
     }
 
+    // -----------------------------------------
+    // CREATE ORDER
+    // -----------------------------------------
     const order = await Order.create({
       user: req.user.id,
-      items: cart.items.map((i) => ({
+      items: itemsToOrder.map((i) => ({
         product: i.product._id,
         qty: i.qty,
       })),
@@ -283,22 +327,29 @@ router.post("/create", protect, async (req, res) => {
       paymentStatus: "PENDING",
     });
 
-    // Reduce stock
-    for (const i of cart.items) {
+    // -----------------------------------------
+    // DEDUCT STOCK
+    // -----------------------------------------
+    for (const i of itemsToOrder) {
       const prod = await Product.findById(i.product._id);
       prod.stockQty -= i.qty;
       await prod.save();
     }
 
-    // Clear cart
-    cart.items = [];
-    await cart.save();
+    // -----------------------------------------
+    // CLEAR CART ONLY IF FULL ORDER
+    // -----------------------------------------
+    if (!productId) {
+      await Cart.updateOne({ user: req.user.id }, { $set: { items: [] } });
+    }
 
     res.json({ success: true, message: "Order placed", order });
+
   } catch (err) {
     console.error("CREATE ORDER ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 });
+
 
 module.exports = router;
