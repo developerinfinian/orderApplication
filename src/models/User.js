@@ -10,10 +10,15 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, required: true, unique: true, trim: true },
     password: { type: String, required: true, minlength: 6 },
     role: { type: String, enum: ALLOWED_ROLES, default: "CUSTOMER" },
+
     address: { type: String, default: "" },
     gstNumber: { type: String, trim: true, default: "" },
-    profileImage: { type: String, default: "" }, // URL path for image
+    profileImage: { type: String, default: "" },
+
     isActive: { type: Boolean, default: false },
+
+    /** ⭐ ADD THIS FIELD */
+    marginPercent: { type: Number, default: 0 }, 
   },
   { timestamps: true }
 );
