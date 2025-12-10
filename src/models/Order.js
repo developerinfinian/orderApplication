@@ -1,4 +1,3 @@
-// models/Order.js
 const mongoose = require("mongoose");
 const crypto = require("crypto");
 
@@ -10,13 +9,8 @@ const orderSchema = new mongoose.Schema(
       default: () => crypto.randomUUID(),
     },
 
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
 
-    // optional snapshot of user (if you want to store edited name/phone)
     userSnapshot: {
       name: String,
       phone: String,
@@ -29,10 +23,11 @@ const orderSchema = new mongoose.Schema(
       },
     ],
 
-    totalAmount: {
-      type: Number,
-      required: true,
-    },
+    totalAmount: { type: Number, required: true },
+
+    /** ⭐ ADD THESE TWO FIELDS */
+    marginPercent: { type: Number, default: 0 }, // applied dealer margin 
+    finalAmount: { type: Number, default: 0 }, // after margin deduction
 
     paymentStatus: {
       type: String,
@@ -46,10 +41,7 @@ const orderSchema = new mongoose.Schema(
       default: "PENDING",
     },
 
-    invoiceNumber: {
-      type: String,
-      default: "",
-    },
+    invoiceNumber: { type: String, default: "" },
   },
   { timestamps: true }
 );
