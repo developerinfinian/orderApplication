@@ -12,13 +12,12 @@ const router = express.Router();
 ==================================================================== */
 router.get("/all", protect, async (req, res) => {
   try {
-    const allowed = ["ADMIN", "MANAGER"];
-    if (!allowed.includes(req.user.role)) {
+    if (!["ADMIN", "MANAGER"].includes(req.user.role)) {
       return res.status(403).json({ message: "Access denied" });
     }
 
     const orders = await Order.find()
-      .populate({ path: "user", select: "name email phone role" })
+      .populate({ path: "user", select: "name email phone role marginPercent" })
       .populate({ path: "items.product", select: "name price" })
       .sort({ createdAt: -1 });
 
@@ -34,16 +33,16 @@ router.get("/all", protect, async (req, res) => {
 ==================================================================== */
 router.put("/accept/:id", protect, async (req, res) => {
   try {
-    const allowed = ["ADMIN", "MANAGER"];
-    if (!allowed.includes(req.user.role)) {
+    if (!["ADMIN", "MANAGER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
-    }
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (order.orderStatus !== "PENDING") {
-      return res.status(400).json({ message: "Only pending orders can be accepted" });
+      return res.status(400).json({
+        message: "Only pending orders can be accepted",
+      });
     }
 
     order.orderStatus = "PROCESSING";
@@ -51,7 +50,6 @@ router.put("/accept/:id", protect, async (req, res) => {
 
     res.json({ success: true, message: "Order accepted", order });
   } catch (err) {
-    console.error("ACCEPT order error", err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -61,16 +59,16 @@ router.put("/accept/:id", protect, async (req, res) => {
 ==================================================================== */
 router.put("/reject/:id", protect, async (req, res) => {
   try {
-    const allowed = ["ADMIN", "MANAGER"];
-    if (!allowed.includes(req.user.role)) {
+    if (!["ADMIN", "MANAGER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
-    }
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (order.orderStatus === "COMPLETED") {
-      return res.status(400).json({ message: "Cannot reject a completed order" });
+      return res
+        .status(400)
+        .json({ message: "Cannot reject a completed order" });
     }
 
     order.orderStatus = "CANCELLED";
@@ -78,7 +76,6 @@ router.put("/reject/:id", protect, async (req, res) => {
 
     res.json({ success: true, message: "Order rejected", order });
   } catch (err) {
-    console.error("REJECT order error", err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -88,78 +85,77 @@ router.put("/reject/:id", protect, async (req, res) => {
 ==================================================================== */
 router.put("/edit/:id", protect, async (req, res) => {
   try {
-    const allowed = ["ADMIN", "MANAGER", "USER"];
-    if (!allowed.includes(req.user.role)) {
+    if (!["ADMIN", "MANAGER", "USER"].includes(req.user.role)) {
       return res.status(403).json({ message: "Access denied" });
     }
 
     const { items } = req.body;
 
-    const order = await Order.findById(req.params.id).populate("items.product");
+    const order = await Order.findById(req.params.id).populate(
+      "items.product"
+    );
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (order.orderStatus !== "PENDING") {
-      return res.status(400).json({ message: "Only pending orders can be edited" });
+      return res.status(400).json({
+        message: "Only pending orders can be edited",
+      });
     }
 
-    /* ==========================
-       STEP 1: RESTORE OLD STOCK
-    =========================== */
+    // STEP 1: Restore old stock
     for (const old of order.items) {
-      const product = await Product.findById(old.product._id);
-      if (product) {
-        product.stockQty += old.qty;
-        await product.save();
+      const prod = await Product.findById(old.product._id);
+      if (prod) {
+        prod.stockQty += old.qty;
+        await prod.save();
       }
     }
 
-    /* ==========================
-       STEP 2: APPLY NEW ITEMS
-    =========================== */
+    // STEP 2: Apply new items
     let total = 0;
     const newItems = [];
 
     for (const it of items) {
       const prod = await Product.findById(it.product);
-      if (!prod) return res.status(404).json({ message: "Product not found" });
+      if (!prod)
+        return res.status(404).json({ message: "Product not found" });
 
       const qty = Number(it.qty);
-      if (qty <= 0) return res.status(400).json({ message: "Invalid quantity" });
 
-      if (prod.stockQty < qty) {
+      if (qty <= 0)
+        return res.status(400).json({ message: "Invalid quantity" });
+
+      if (prod.stockQty < qty)
         return res.status(400).json({
           message: `Only ${prod.stockQty} available for ${prod.name}`,
         });
-      }
 
-      // Deduct new qty
       prod.stockQty -= qty;
-      prod.alertLevel =
-        prod.stockQty < 5
-          ? "CRITICAL"
-          : prod.stockQty < 20
-          ? "LOW"
-          : prod.stockQty < 50
-          ? "WARNING"
-          : "NONE";
-
       await prod.save();
 
       newItems.push({ product: prod._id, qty });
       total += prod.price * qty;
     }
 
-    /* ==========================
-       STEP 3: SAVE ORDER UPDATE
-    =========================== */
+    // STEP 3: Apply dealer margin
+    let marginPercent = 0;
+    let finalAmount = total;
+
+    if (req.user.role === "DEALER") {
+      marginPercent = req.user.marginPercent || 0;
+      finalAmount = total - (total * marginPercent) / 100;
+    }
+
     order.items = newItems;
     order.totalAmount = total;
+    order.marginPercent = marginPercent;
+    order.finalAmount = finalAmount;
 
     await order.save();
 
     res.json({
       success: true,
-      message: "Order updated & stock adjusted",
+      message: "Order updated",
       order,
     });
   } catch (err) {
@@ -173,31 +169,31 @@ router.put("/edit/:id", protect, async (req, res) => {
 ==================================================================== */
 router.put("/invoice/:id", protect, async (req, res) => {
   try {
-    const allowed = ["ADMIN", "MANAGER"];
-    if (!allowed.includes(req.user.role)) {
+    if (!["ADMIN", "MANAGER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
-    }
 
     const { invoiceNumber } = req.body;
-    if (!invoiceNumber || invoiceNumber.trim() === "") {
-      return res.status(400).json({ message: "Invoice number required" });
-    }
 
-    const existing = await Order.findOne({ invoiceNumber });
-    if (existing && existing._id.toString() !== req.params.id) {
-      return res.status(400).json({ message: "Invoice number already exists" });
-    }
+    if (!invoiceNumber || invoiceNumber.trim() === "")
+      return res.status(400).json({ message: "Invoice number required" });
+
+    const exists = await Order.findOne({ invoiceNumber });
+
+    if (exists && exists._id.toString() !== req.params.id)
+      return res.status(400).json({
+        message: "Invoice number already exists",
+      });
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     order.invoiceNumber = invoiceNumber;
     order.orderStatus = "COMPLETED";
+
     await order.save();
 
     res.json({ success: true, message: "Invoice added", order });
   } catch (err) {
-    console.error("INVOICE ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -207,45 +203,36 @@ router.put("/invoice/:id", protect, async (req, res) => {
 ==================================================================== */
 router.delete("/delete/:id", protect, async (req, res) => {
   try {
-    const allowed = ["ADMIN", "MANAGER", "USER"];
-    if (!allowed.includes(req.user.role)) {
+    if (!["ADMIN", "MANAGER", "USER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
-    }
 
-    const order = await Order.findById(req.params.id).populate("items.product");
+    const order = await Order.findById(req.params.id).populate(
+      "items.product"
+    );
+
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // users can delete only pending orders
     if (req.user.role === "USER" && order.orderStatus !== "PENDING") {
-      return res.status(403).json({ message: "Only pending orders can be deleted" });
+      return res.status(403).json({
+        message: "Only pending orders can be deleted",
+      });
     }
 
-    /* ================================================
-       RESTORE STOCK BACK WHEN ORDER IS DELETED
-    ================================================= */
     for (const item of order.items) {
-      const product = await Product.findById(item.product._id);
-      if (product) {
-        product.stockQty += item.qty;
-
-        product.alertLevel =
-          product.stockQty < 5
-            ? "CRITICAL"
-            : product.stockQty < 20
-            ? "LOW"
-            : product.stockQty < 50
-            ? "WARNING"
-            : "NONE";
-
-        await product.save();
+      const prod = await Product.findById(item.product._id);
+      if (prod) {
+        prod.stockQty += item.qty;
+        await prod.save();
       }
     }
 
     await order.deleteOne();
 
-    res.json({ success: true, message: "Order deleted & stock restored." });
+    res.json({
+      success: true,
+      message: "Order deleted & stock restored",
+    });
   } catch (err) {
-    console.error("DELETE ORDER ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -261,7 +248,6 @@ router.get("/", protect, async (req, res) => {
 
     res.json({ success: true, orders });
   } catch (err) {
-    console.error("GET USER ORDERS ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -271,51 +257,55 @@ router.get("/", protect, async (req, res) => {
 ==================================================================== */
 router.post("/create", protect, async (req, res) => {
   try {
-    const cart = await Cart.findOne({ user: req.user.id }).populate("items.product");
+    const cart = await Cart.findOne({
+      user: req.user.id,
+    }).populate("items.product");
 
-    if (!cart || cart.items.length === 0) {
+    if (!cart || cart.items.length === 0)
       return res.status(400).json({ message: "Cart is empty" });
-    }
 
     let total = 0;
+    cart.items.forEach(
+      (i) => (total += i.product.price * i.qty)
+    );
 
-    // compute total
-    cart.items.forEach((i) => {
-      total += i.product.price * i.qty;
-    });
+    let marginPercent = 0;
+    let finalAmount = total;
+
+    if (req.user.role === "DEALER") {
+      marginPercent = req.user.marginPercent || 0;
+      finalAmount = total - (total * marginPercent) / 100;
+    }
 
     const order = await Order.create({
       user: req.user.id,
-      items: cart.items.map((i) => ({ product: i.product._id, qty: i.qty })),
+      items: cart.items.map((i) => ({
+        product: i.product._id,
+        qty: i.qty,
+      })),
       totalAmount: total,
+      marginPercent,
+      finalAmount,
       orderStatus: "PENDING",
       paymentStatus: "PENDING",
     });
 
-    // reduce stock
     for (const i of cart.items) {
-      const product = await Product.findById(i.product._id);
-      if (product) {
-        product.stockQty -= i.qty;
-
-        product.alertLevel =
-          product.stockQty < 5
-            ? "CRITICAL"
-            : product.stockQty < 20
-            ? "LOW"
-            : product.stockQty < 50
-            ? "WARNING"
-            : "NONE";
-
-        await product.save();
+      const prod = await Product.findById(i.product._id);
+      if (prod) {
+        prod.stockQty -= i.qty;
+        await prod.save();
       }
     }
 
-    // clear cart
     cart.items = [];
     await cart.save();
 
-    res.json({ success: true, message: "Order placed", order });
+    res.json({
+      success: true,
+      message: "Order placed",
+      order,
+    });
   } catch (err) {
     console.error("CREATE ORDER ERROR:", err);
     res.status(500).json({ message: err.message });
