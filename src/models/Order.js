@@ -16,6 +16,12 @@ const orderSchema = new mongoose.Schema(
       required: true,
     },
 
+    // optional snapshot of user (if you want to store edited name/phone)
+    userSnapshot: {
+      name: String,
+      phone: String,
+    },
+
     items: [
       {
         product: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
@@ -40,7 +46,6 @@ const orderSchema = new mongoose.Schema(
       default: "PENDING",
     },
 
-    // ⭐ NEW FIELD
     invoiceNumber: {
       type: String,
       default: "",
