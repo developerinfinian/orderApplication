@@ -6,18 +6,20 @@ const { protect } = require("../middleware/auth");
 
 const router = express.Router();
 
-/* ====================================================================
+/* ============================================================
    ADMIN / MANAGER: Get ALL Orders
-==================================================================== */
+============================================================ */
 router.get("/all", protect, async (req, res) => {
   try {
-    if (!["ADMIN", "MANAGER"].includes(req.user.role)) {
+    if (!["ADMIN", "MANAGER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
-    }
 
     const orders = await Order.find()
       .populate({ path: "user", select: "name email phone role" })
-      .populate({ path: "items.product", select: "name retailPrice dealerPrice" })
+      .populate({
+        path: "items.product",
+        select: "name retailPrice dealerPrice stockQty",
+      })
       .sort({ createdAt: -1 });
 
     res.json({ success: true, orders });
@@ -26,9 +28,9 @@ router.get("/all", protect, async (req, res) => {
   }
 });
 
-/* ====================================================================
+/* ============================================================
    ADMIN / MANAGER: Accept Order
-==================================================================== */
+============================================================ */
 router.put("/accept/:id", protect, async (req, res) => {
   try {
     if (!["ADMIN", "MANAGER"].includes(req.user.role))
@@ -37,9 +39,10 @@ router.put("/accept/:id", protect, async (req, res) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    if (order.orderStatus !== "PENDING") {
-      return res.status(400).json({ message: "Only pending orders can be accepted" });
-    }
+    if (order.orderStatus !== "PENDING")
+      return res
+        .status(400)
+        .json({ message: "Only pending orders can be accepted" });
 
     order.orderStatus = "PROCESSING";
     await order.save();
@@ -50,9 +53,9 @@ router.put("/accept/:id", protect, async (req, res) => {
   }
 });
 
-/* ====================================================================
+/* ============================================================
    ADMIN / MANAGER: Reject Order
-==================================================================== */
+============================================================ */
 router.put("/reject/:id", protect, async (req, res) => {
   try {
     if (!["ADMIN", "MANAGER"].includes(req.user.role))
@@ -61,9 +64,10 @@ router.put("/reject/:id", protect, async (req, res) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    if (order.orderStatus === "COMPLETED") {
-      return res.status(400).json({ message: "Cannot reject a completed order" });
-    }
+    if (order.orderStatus === "COMPLETED")
+      return res
+        .status(400)
+        .json({ message: "Cannot reject a completed order" });
 
     order.orderStatus = "CANCELLED";
     await order.save();
@@ -74,25 +78,25 @@ router.put("/reject/:id", protect, async (req, res) => {
   }
 });
 
-/* ====================================================================
-   EDIT ORDER (Restore stock → recalc total using dealer/retail price)
-==================================================================== */
+/* ============================================================
+   EDIT ORDER (Restock old → recalc → deduct new)
+============================================================ */
 router.put("/edit/:id", protect, async (req, res) => {
   try {
-    if (!["ADMIN", "MANAGER"].includes(req.user.role)) {
+    if (!["ADMIN", "MANAGER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
-    }
 
     const { items } = req.body;
 
-    const order = await Order.findById(req.params.id).populate("items.product");
+    const order = await Order.findById(req.params.id).populate("items.product user");
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    if (order.orderStatus !== "PENDING") {
-      return res.status(400).json({ message: "Only pending orders can be edited" });
-    }
+    if (order.orderStatus !== "PENDING")
+      return res
+        .status(400)
+        .json({ message: "Only pending orders can be edited" });
 
-    // STEP 1: Restore old stock
+    /* --- Restore old stock --- */
     for (const old of order.items) {
       const prod = await Product.findById(old.product._id);
       if (prod) {
@@ -101,7 +105,7 @@ router.put("/edit/:id", protect, async (req, res) => {
       }
     }
 
-    // STEP 2: Apply new items and recalc total
+    /* --- Apply new items --- */
     let total = 0;
     let finalAmount = 0;
     let dealerPriceUsed = false;
@@ -109,28 +113,31 @@ router.put("/edit/:id", protect, async (req, res) => {
     const newItems = [];
 
     for (const it of items) {
-      const prod = await Product.findById(it.product);
-      if (!prod) return res.status(404).json({ message: "Product not found" });
+      const prodId = it.product?._id || it.product;
+      const prod = await Product.findById(prodId);
+
+      if (!prod)
+        return res.status(404).json({ message: "Product not found" });
 
       const qty = Number(it.qty);
-      if (qty <= 0) return res.status(400).json({ message: "Invalid quantity" });
+      if (qty <= 0)
+        return res.status(400).json({ message: "Invalid quantity" });
 
-      if (prod.stockQty < qty) {
+      if (prod.stockQty < qty)
         return res.status(400).json({
           message: `Only ${prod.stockQty} available for ${prod.name}`,
         });
-      }
 
-      // Deduct stock
+      // Deduct new stock
       prod.stockQty -= qty;
       await prod.save();
 
       newItems.push({ product: prod._id, qty });
 
-      // Retail total
+      // Retail price calculation
       total += prod.retailPrice * qty;
 
-      // Dealer pricing logic
+      // Dealer/customer logic
       if (order.user.role === "DEALER") {
         dealerPriceUsed = true;
         finalAmount += prod.dealerPrice * qty;
@@ -146,19 +153,15 @@ router.put("/edit/:id", protect, async (req, res) => {
 
     await order.save();
 
-    res.json({
-      success: true,
-      message: "Order updated",
-      order,
-    });
+    res.json({ success: true, message: "Order updated", order });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-/* ====================================================================
-   ADD INVOICE → COMPLETE ORDER
-==================================================================== */
+/* ============================================================
+   COMPLETE ORDER → ADD INVOICE NUMBER
+============================================================ */
 router.put("/invoice/:id", protect, async (req, res) => {
   try {
     if (!["ADMIN", "MANAGER"].includes(req.user.role))
@@ -170,9 +173,10 @@ router.put("/invoice/:id", protect, async (req, res) => {
       return res.status(400).json({ message: "Invoice number required" });
 
     const exists = await Order.findOne({ invoiceNumber });
-    if (exists && exists._id.toString() !== req.params.id) {
-      return res.status(400).json({ message: "Invoice number already exists" });
-    }
+    if (exists && exists._id.toString() !== req.params.id)
+      return res
+        .status(400)
+        .json({ message: "Invoice number already exists" });
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
@@ -182,15 +186,15 @@ router.put("/invoice/:id", protect, async (req, res) => {
 
     await order.save();
 
-    res.json({ success: true, message: "Invoice added", order });
+    res.json({ success: true, message: "Order completed", order });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-/* ====================================================================
+/* ============================================================
    DELETE ORDER → RESTORE STOCK
-==================================================================== */
+============================================================ */
 router.delete("/delete/:id", protect, async (req, res) => {
   try {
     if (!["ADMIN", "MANAGER", "USER"].includes(req.user.role))
@@ -199,11 +203,11 @@ router.delete("/delete/:id", protect, async (req, res) => {
     const order = await Order.findById(req.params.id).populate("items.product");
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    if (req.user.role === "USER" && order.orderStatus !== "PENDING") {
+    // user can only delete pending orders
+    if (req.user.role === "USER" && order.orderStatus !== "PENDING")
       return res.status(403).json({
         message: "Only pending orders can be deleted",
       });
-    }
 
     // Restore stock
     for (const item of order.items) {
@@ -216,18 +220,15 @@ router.delete("/delete/:id", protect, async (req, res) => {
 
     await order.deleteOne();
 
-    res.json({
-      success: true,
-      message: "Order deleted & stock restored",
-    });
+    res.json({ success: true, message: "Order deleted & stock restored" });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-/* ====================================================================
+/* ============================================================
    USER: Get Own Orders
-==================================================================== */
+============================================================ */
 router.get("/", protect, async (req, res) => {
   try {
     const orders = await Order.find({ user: req.user.id })
@@ -240,13 +241,14 @@ router.get("/", protect, async (req, res) => {
   }
 });
 
-/* ====================================================================
-   CREATE ORDER FROM CART (DEALER PRICE LOGIC)
-==================================================================== */
+/* ============================================================
+   CREATE ORDER FROM CART (Retail for user, Dealer for dealer)
+============================================================ */
 router.post("/create", protect, async (req, res) => {
   try {
-    const cart = await Cart.findOne({ user: req.user.id })
-      .populate("items.product");
+    const cart = await Cart.findOne({ user: req.user.id }).populate(
+      "items.product"
+    );
 
     if (!cart || cart.items.length === 0)
       return res.status(400).json({ message: "Cart is empty" });
@@ -284,21 +286,15 @@ router.post("/create", protect, async (req, res) => {
     // Reduce stock
     for (const i of cart.items) {
       const prod = await Product.findById(i.product._id);
-      if (prod) {
-        prod.stockQty -= i.qty;
-        await prod.save();
-      }
+      prod.stockQty -= i.qty;
+      await prod.save();
     }
 
     // Clear cart
     cart.items = [];
     await cart.save();
 
-    res.json({
-      success: true,
-      message: "Order placed",
-      order,
-    });
+    res.json({ success: true, message: "Order placed", order });
   } catch (err) {
     console.error("CREATE ORDER ERROR:", err);
     res.status(500).json({ message: err.message });
