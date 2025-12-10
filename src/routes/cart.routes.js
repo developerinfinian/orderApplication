@@ -6,14 +6,25 @@ const { protect } = require("../middleware/auth");
 const router = express.Router();
 
 /* ============================================================
-    GET USER CART  (FIXED FULL RESPONSE)
+   HELPER: POPULATE CART
+============================================================ */
+const populateCart = async (userId) => {
+  return await Cart.findOne({ user: userId }).populate({
+    path: "items",
+    populate: {
+      path: "product",
+      model: "Product",
+      select: "name price image stockQty",
+    },
+  });
+};
+
+/* ============================================================
+    GET USER CART (FULL FIXED)
 ============================================================ */
 router.get("/", protect, async (req, res) => {
   try {
-    let cart = await Cart.findOne({ user: req.user.id }).populate({
-      path: "items.product",
-      select: "name price image stockQty",
-    });
+    const cart = await populateCart(req.user.id);
 
     if (!cart) {
       return res.json({
@@ -23,9 +34,9 @@ router.get("/", protect, async (req, res) => {
       });
     }
 
-    return res.json({
+    res.json({
       success: true,
-      items: cart.items, // UPDATED: UI expects this exactly
+      items: cart.items,
       totalItems: cart.items.length,
     });
   } catch (err) {
@@ -35,15 +46,14 @@ router.get("/", protect, async (req, res) => {
 });
 
 /* ============================================================
-    ADD ITEM TO CART
+    ADD TO CART
 ============================================================ */
 router.post("/add", protect, async (req, res) => {
   try {
     const { productId, qty } = req.body;
 
     const product = await Product.findById(productId);
-    if (!product)
-      return res.status(404).json({ message: "Product not found" });
+    if (!product) return res.status(404).json({ message: "Product not found" });
 
     if (product.stockQty <= 0)
       return res.status(400).json({ message: "Out of Stock" });
@@ -69,14 +79,14 @@ router.post("/add", protect, async (req, res) => {
 
     await cart.save();
 
-    const populatedCart = await cart.populate("items.product");
+    const populated = await populateCart(req.user.id);
 
     res.json({
       success: true,
-      items: populatedCart.items,
+      items: populated.items,
     });
   } catch (err) {
-    console.log("ADD TO CART ERROR:", err.message);
+    console.log("ADD CART ERROR:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -95,23 +105,22 @@ router.put("/update", protect, async (req, res) => {
       (i) => i.product.toString() === productId
     );
 
-    if (!item) {
+    if (!item)
       return res.status(404).json({ message: "Product not in cart" });
-    }
 
     if (type === "inc") item.qty += 1;
     if (type === "dec") item.qty = Math.max(1, item.qty - 1);
 
     await cart.save();
 
-    const updatedCart = await cart.populate("items.product");
+    const populated = await populateCart(req.user.id);
 
     res.json({
       success: true,
-      items: updatedCart.items,
+      items: populated.items,
     });
   } catch (err) {
-    console.log("UPDATE QTY ERROR:", err.message);
+    console.log("UPDATE CART ERROR:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -131,11 +140,11 @@ router.delete("/:productId", protect, async (req, res) => {
 
     await cart.save();
 
-    const updatedCart = await cart.populate("items.product");
+    const populated = await populateCart(req.user.id);
 
     res.json({
       success: true,
-      items: updatedCart.items,
+      items: populated.items,
     });
   } catch (err) {
     console.log("REMOVE ITEM ERROR:", err.message);
