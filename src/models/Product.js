@@ -1,24 +1,30 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
-    price: { type: Number, required: true },
-    imageUrl: { type: String },
-    description: { type: String },
-    sku: { type: String },
-    category: { type: String },
+
+    // ⭐ TWO SEPARATE PRICES
+    retailPrice: { type: Number, required: true },
+    dealerPrice: { type: Number, required: true },
+
+    // ⭐ IMAGE URL (manual or uploaded)
+    imageUrl: { type: String, default: "" },
+
+    description: { type: String, default: "" },
+    sku: { type: String, default: "" },
+    category: { type: String, default: "" },
 
     stockQty: { type: Number, default: 0 },
 
-    // ⭐ IMPORTANT → This field was missing
+    // ⭐ AUTO ALERT LEVEL SYSTEM
     alertLevel: {
       type: String,
       enum: ["CRITICAL", "LOW", "WARNING", "NONE"],
       default: "NONE",
     },
 
-    status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' }
+    status: { type: String, enum: ["ACTIVE", "INACTIVE"], default: "ACTIVE" },
   },
   { timestamps: true }
 );
@@ -59,4 +65,4 @@ productSchema.pre("findOneAndUpdate", function (next) {
   next();
 });
 
-module.exports = mongoose.model('Product', productSchema);
+module.exports = mongoose.model("Product", productSchema);
