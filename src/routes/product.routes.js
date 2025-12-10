@@ -1,6 +1,6 @@
 const express = require("express");
 const Product = require("../models/Product");
-const upload = require("../middleware/upload"); // Multer middleware
+const upload = require("../middleware/upload"); // Still used for edit if needed
 
 const router = express.Router();
 
@@ -45,26 +45,36 @@ router.get("/:id", async (req, res) => {
 });
 
 /* ============================================================
-   CREATE PRODUCT WITH IMAGE (ADD)
+   CREATE PRODUCT (NO IMAGE UPLOAD — URL ONLY)
 ============================================================ */
-router.post("/", upload.single("image"), async (req, res) => {
+router.post("/", async (req, res) => {
   try {
-    const { name, price, stockQty } = req.body;
+    const {
+      name,
+      retailPrice,
+      dealerPrice,
+      stockQty,
+      category,
+      description,
+      imageUrl,
+    } = req.body;
 
-    if (!name || !price) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Name & Price are required!" });
-    }
-
-    let imageUrl = "";
-    if (req.file) {
-      imageUrl = "/uploads/products/" + req.file.filename;
+    if (!name || !retailPrice || !dealerPrice) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, Retail Price & Dealer Price are required!",
+      });
     }
 
     const product = await Product.create({
-      ...req.body,
-      imageUrl,
+      name,
+      retailPrice: Number(retailPrice),
+      dealerPrice: Number(dealerPrice),
+      category: category || "",
+      stockQty: Number(stockQty || 0),
+      description: description || "",
+      status: "ACTIVE",
+      imageUrl: imageUrl || "", // manual URL only
     });
 
     return res.status(201).json({
@@ -78,20 +88,26 @@ router.post("/", upload.single("image"), async (req, res) => {
 });
 
 /* ============================================================
-   UPDATE PRODUCT (EDIT) WITH OPTIONAL NEW IMAGE
+   UPDATE PRODUCT (OPTIONAL IMAGE UPLOAD)
 ============================================================ */
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
     let updateData = { ...req.body };
 
-    // If new image uploaded, override imageUrl
+    // If new image uploaded → replace
     if (req.file) {
       updateData.imageUrl = "/uploads/products/" + req.file.filename;
     }
 
-    // Convert numbers properly
-    if (updateData.price) updateData.price = Number(updateData.price);
-    if (updateData.stockQty) updateData.stockQty = Number(updateData.stockQty);
+    // Ensure number conversion
+    if (updateData.retailPrice)
+      updateData.retailPrice = Number(updateData.retailPrice);
+
+    if (updateData.dealerPrice)
+      updateData.dealerPrice = Number(updateData.dealerPrice);
+
+    if (updateData.stockQty)
+      updateData.stockQty = Number(updateData.stockQty);
 
     const updated = await Product.findByIdAndUpdate(req.params.id, updateData, {
       new: true,
