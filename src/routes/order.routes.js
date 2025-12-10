@@ -1,4 +1,3 @@
-// routes/orders.js
 const express = require("express");
 const Cart = require("../models/Cart");
 const Order = require("../models/Order");
@@ -17,13 +16,12 @@ router.get("/all", protect, async (req, res) => {
     }
 
     const orders = await Order.find()
-      .populate({ path: "user", select: "name email phone role marginPercent" })
-      .populate({ path: "items.product", select: "name price" })
+      .populate({ path: "user", select: "name email phone role" })
+      .populate({ path: "items.product", select: "name retailPrice dealerPrice" })
       .sort({ createdAt: -1 });
 
     res.json({ success: true, orders });
   } catch (err) {
-    console.error("GET /all orders error", err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -40,9 +38,7 @@ router.put("/accept/:id", protect, async (req, res) => {
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (order.orderStatus !== "PENDING") {
-      return res.status(400).json({
-        message: "Only pending orders can be accepted",
-      });
+      return res.status(400).json({ message: "Only pending orders can be accepted" });
     }
 
     order.orderStatus = "PROCESSING";
@@ -66,9 +62,7 @@ router.put("/reject/:id", protect, async (req, res) => {
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (order.orderStatus === "COMPLETED") {
-      return res
-        .status(400)
-        .json({ message: "Cannot reject a completed order" });
+      return res.status(400).json({ message: "Cannot reject a completed order" });
     }
 
     order.orderStatus = "CANCELLED";
@@ -81,25 +75,21 @@ router.put("/reject/:id", protect, async (req, res) => {
 });
 
 /* ====================================================================
-   EDIT ORDER (Restore old stock → apply new stock difference)
+   EDIT ORDER (Restore stock → recalc total using dealer/retail price)
 ==================================================================== */
 router.put("/edit/:id", protect, async (req, res) => {
   try {
-    if (!["ADMIN", "MANAGER", "USER"].includes(req.user.role)) {
+    if (!["ADMIN", "MANAGER"].includes(req.user.role)) {
       return res.status(403).json({ message: "Access denied" });
     }
 
     const { items } = req.body;
 
-    const order = await Order.findById(req.params.id).populate(
-      "items.product"
-    );
+    const order = await Order.findById(req.params.id).populate("items.product");
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (order.orderStatus !== "PENDING") {
-      return res.status(400).json({
-        message: "Only pending orders can be edited",
-      });
+      return res.status(400).json({ message: "Only pending orders can be edited" });
     }
 
     // STEP 1: Restore old stock
@@ -111,45 +101,48 @@ router.put("/edit/:id", protect, async (req, res) => {
       }
     }
 
-    // STEP 2: Apply new items
+    // STEP 2: Apply new items and recalc total
     let total = 0;
+    let finalAmount = 0;
+    let dealerPriceUsed = false;
+
     const newItems = [];
 
     for (const it of items) {
       const prod = await Product.findById(it.product);
-      if (!prod)
-        return res.status(404).json({ message: "Product not found" });
+      if (!prod) return res.status(404).json({ message: "Product not found" });
 
       const qty = Number(it.qty);
+      if (qty <= 0) return res.status(400).json({ message: "Invalid quantity" });
 
-      if (qty <= 0)
-        return res.status(400).json({ message: "Invalid quantity" });
-
-      if (prod.stockQty < qty)
+      if (prod.stockQty < qty) {
         return res.status(400).json({
           message: `Only ${prod.stockQty} available for ${prod.name}`,
         });
+      }
 
+      // Deduct stock
       prod.stockQty -= qty;
       await prod.save();
 
       newItems.push({ product: prod._id, qty });
-      total += prod.price * qty;
-    }
 
-    // STEP 3: Apply dealer margin
-    let marginPercent = 0;
-    let finalAmount = total;
+      // Retail total
+      total += prod.retailPrice * qty;
 
-    if (req.user.role === "DEALER") {
-      marginPercent = req.user.marginPercent || 0;
-      finalAmount = total - (total * marginPercent) / 100;
+      // Dealer pricing logic
+      if (order.user.role === "DEALER") {
+        dealerPriceUsed = true;
+        finalAmount += prod.dealerPrice * qty;
+      } else {
+        finalAmount += prod.retailPrice * qty;
+      }
     }
 
     order.items = newItems;
     order.totalAmount = total;
-    order.marginPercent = marginPercent;
     order.finalAmount = finalAmount;
+    order.dealerPriceUsed = dealerPriceUsed;
 
     await order.save();
 
@@ -159,7 +152,6 @@ router.put("/edit/:id", protect, async (req, res) => {
       order,
     });
   } catch (err) {
-    console.error("EDIT ORDER ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -178,11 +170,9 @@ router.put("/invoice/:id", protect, async (req, res) => {
       return res.status(400).json({ message: "Invoice number required" });
 
     const exists = await Order.findOne({ invoiceNumber });
-
-    if (exists && exists._id.toString() !== req.params.id)
-      return res.status(400).json({
-        message: "Invoice number already exists",
-      });
+    if (exists && exists._id.toString() !== req.params.id) {
+      return res.status(400).json({ message: "Invoice number already exists" });
+    }
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
@@ -206,10 +196,7 @@ router.delete("/delete/:id", protect, async (req, res) => {
     if (!["ADMIN", "MANAGER", "USER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
 
-    const order = await Order.findById(req.params.id).populate(
-      "items.product"
-    );
-
+    const order = await Order.findById(req.params.id).populate("items.product");
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (req.user.role === "USER" && order.orderStatus !== "PENDING") {
@@ -218,6 +205,7 @@ router.delete("/delete/:id", protect, async (req, res) => {
       });
     }
 
+    // Restore stock
     for (const item of order.items) {
       const prod = await Product.findById(item.product._id);
       if (prod) {
@@ -253,28 +241,31 @@ router.get("/", protect, async (req, res) => {
 });
 
 /* ====================================================================
-   CREATE ORDER FROM CART
+   CREATE ORDER FROM CART (DEALER PRICE LOGIC)
 ==================================================================== */
 router.post("/create", protect, async (req, res) => {
   try {
-    const cart = await Cart.findOne({
-      user: req.user.id,
-    }).populate("items.product");
+    const cart = await Cart.findOne({ user: req.user.id })
+      .populate("items.product");
 
     if (!cart || cart.items.length === 0)
       return res.status(400).json({ message: "Cart is empty" });
 
     let total = 0;
-    cart.items.forEach(
-      (i) => (total += i.product.price * i.qty)
-    );
+    let finalAmount = 0;
+    let dealerPriceUsed = false;
 
-    let marginPercent = 0;
-    let finalAmount = total;
+    for (const i of cart.items) {
+      const prod = i.product;
 
-    if (req.user.role === "DEALER") {
-      marginPercent = req.user.marginPercent || 0;
-      finalAmount = total - (total * marginPercent) / 100;
+      total += prod.retailPrice * i.qty;
+
+      if (req.user.role === "DEALER") {
+        dealerPriceUsed = true;
+        finalAmount += prod.dealerPrice * i.qty;
+      } else {
+        finalAmount += prod.retailPrice * i.qty;
+      }
     }
 
     const order = await Order.create({
@@ -284,12 +275,13 @@ router.post("/create", protect, async (req, res) => {
         qty: i.qty,
       })),
       totalAmount: total,
-      marginPercent,
       finalAmount,
+      dealerPriceUsed,
       orderStatus: "PENDING",
       paymentStatus: "PENDING",
     });
 
+    // Reduce stock
     for (const i of cart.items) {
       const prod = await Product.findById(i.product._id);
       if (prod) {
@@ -298,6 +290,7 @@ router.post("/create", protect, async (req, res) => {
       }
     }
 
+    // Clear cart
     cart.items = [];
     await cart.save();
 
