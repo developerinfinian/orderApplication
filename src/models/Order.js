@@ -23,11 +23,19 @@ const orderSchema = new mongoose.Schema(
       },
     ],
 
+    // Original retail total before checking role
     totalAmount: { type: Number, required: true },
 
-    /** ⭐ ADD THESE TWO FIELDS */
-    marginPercent: { type: Number, default: 0 }, // applied dealer margin 
-    finalAmount: { type: Number, default: 0 }, // after margin deduction
+    /** ⭐ NEW LOGIC FIELDS */
+    dealerPriceUsed: {
+      type: Boolean,
+      default: false, // true = dealer price applied
+    },
+
+    finalAmount: {
+      type: Number,
+      default: 0, // final payable amount after applying dealer/retail pricing
+    },
 
     paymentStatus: {
       type: String,
