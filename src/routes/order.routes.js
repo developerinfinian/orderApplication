@@ -2,9 +2,25 @@ const express = require("express");
 const Cart = require("../models/Cart");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
+const Counter = require("../models/Counter");
 const { protect } = require("../middleware/auth");
 
 const router = express.Router();
+
+/* ============================================================
+   FUNCTION: GENERATE ORDER ID (Auto Increment)
+============================================================ */
+async function generateOrderId(role) {
+  let prefix = role === "DEALER" ? "DO" : "CO";
+
+  const counter = await Counter.findOneAndUpdate(
+    { key: prefix },
+    { $inc: { count: 1 } },
+    { new: true, upsert: true }
+  );
+
+  return `#${prefix}${counter.count}`;
+}
 
 /* ============================================================
    ADMIN / MANAGER: Get ALL Orders
@@ -79,18 +95,11 @@ router.put("/reject/:id", protect, async (req, res) => {
 });
 
 /* ============================================================
-   UPDATE ORDER (Fix: Was /edit → Now /update)
-============================================================ */
-/* ============================================================
-   UPDATE ORDER → ADMIN & MANAGER can edit when:
-   - PENDING
-   - PROCESSING
-   Cannot edit when COMPLETED or CANCELLED
+   UPDATE ORDER (ADMIN / MANAGER / DEALER / CUSTOMER)
 ============================================================ */
 router.put("/update/:id", protect, async (req, res) => {
   try {
-    // Only ADMIN / MANAGER can edit orders
-    if (!["ADMIN", "MANAGER","CUSTOMER","DEALER"].includes(req.user.role))
+    if (!["ADMIN", "MANAGER", "CUSTOMER", "DEALER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
 
     const { items, user } = req.body;
@@ -101,30 +110,25 @@ router.put("/update/:id", protect, async (req, res) => {
 
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // ❌ Completed or Cancelled orders cannot be edited
     if (["COMPLETED", "CANCELLED"].includes(order.orderStatus)) {
       return res.status(400).json({
         message: "Completed or cancelled orders cannot be edited",
       });
     }
 
-    // ❌ Optional: Prevent editing if invoice is added
     if (order.invoiceNumber) {
       return res.status(400).json({
         message: "Order cannot be edited after invoice is generated",
       });
     }
 
-    // Allowed statuses: PENDING or PROCESSING
     if (!["PENDING", "PROCESSING"].includes(order.orderStatus)) {
       return res.status(400).json({
         message: "Only pending or processing orders can be edited",
       });
     }
 
-    /* ---------------------------
-          RESTORE OLD STOCK
-    ---------------------------- */
+    // Restore stock
     for (const old of order.items) {
       const prod = await Product.findById(old.product._id);
       if (prod) {
@@ -133,12 +137,9 @@ router.put("/update/:id", protect, async (req, res) => {
       }
     }
 
-    /* ---------------------------
-          APPLY NEW ITEMS
-    ---------------------------- */
+    // Apply new items
     let total = 0;
     let finalAmount = 0;
-
     const newItems = [];
 
     for (const it of items) {
@@ -157,24 +158,20 @@ router.put("/update/:id", protect, async (req, res) => {
           message: `Only ${prod.stockQty} available for ${prod.name}`,
         });
 
-      // Deduct new stock
       prod.stockQty -= qty;
       await prod.save();
 
       newItems.push({ product: prod._id, qty });
 
-      // Pricing logic
       const isDealer = order.user.role === "DEALER";
       total += prod.retailPrice * qty;
       finalAmount += (isDealer ? prod.dealerPrice : prod.retailPrice) * qty;
     }
 
-    // Update order fields
     order.items = newItems;
     order.totalAmount = total;
     order.finalAmount = finalAmount;
 
-    // Update user fields (name, phone) if sent
     if (user) {
       order.user.name = user.name || order.user.name;
       order.user.phone = user.phone || order.user.phone;
@@ -203,7 +200,6 @@ router.put("/invoice/:id", protect, async (req, res) => {
     if (!invoiceNumber || invoiceNumber.trim() === "")
       return res.status(400).json({ message: "Invoice number required" });
 
-    // Check for duplicate invoice number
     const exists = await Order.findOne({ invoiceNumber });
     if (exists && exists._id.toString() !== req.params.id)
       return res
@@ -237,13 +233,11 @@ router.delete("/delete/:id", protect, async (req, res) => {
     );
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // User can only delete their pending order
     if (req.user.role === "USER" && order.orderStatus !== "PENDING")
       return res
         .status(403)
         .json({ message: "Only pending orders can be deleted" });
 
-    // Restore stock
     for (const item of order.items) {
       const prod = await Product.findById(item.product._id);
       if (prod) {
@@ -279,7 +273,7 @@ router.get("/", protect, async (req, res) => {
 });
 
 /* ============================================================
-   CREATE ORDER
+   CREATE ORDER (Auto-Increment Unique ID Added)
 ============================================================ */
 router.post("/create", protect, async (req, res) => {
   try {
@@ -287,9 +281,6 @@ router.post("/create", protect, async (req, res) => {
 
     let itemsToOrder = [];
 
-    // -------------------------------
-    // CASE 1: SINGLE PRODUCT ORDER
-    // -------------------------------
     if (productId) {
       const product = await Product.findById(productId);
 
@@ -303,9 +294,6 @@ router.post("/create", protect, async (req, res) => {
 
       itemsToOrder.push({ product, qty });
     } else {
-      // -------------------------------
-      // CASE 2: FULL CART ORDER
-      // -------------------------------
       const cart = await Cart.findOne({ user: req.user.id }).populate(
         "items.product"
       );
@@ -315,20 +303,11 @@ router.post("/create", protect, async (req, res) => {
 
       cart.items = cart.items.filter((i) => i.product !== null);
 
-      if (cart.items.length === 0)
-        return res
-          .status(400)
-          .json({ message: "Cart contains invalid items" });
-
       itemsToOrder = cart.items;
     }
 
-    // -------------------------------
-    // PRICE CALCULATION
-    // -------------------------------
     let total = 0;
     let finalAmount = 0;
-    const dealerPriceUsed = req.user.role === "DEALER";
 
     for (const i of itemsToOrder) {
       const p = i.product;
@@ -340,9 +319,9 @@ router.post("/create", protect, async (req, res) => {
       else finalAmount += p.retailPrice * i.qty;
     }
 
-    // -------------------------------
-    // CREATE ORDER
-    // -------------------------------
+    // 🔥 Generate Unique Auto Increment Order ID
+    const customOrderId = await generateOrderId(req.user.role);
+
     const order = await Order.create({
       user: req.user.id,
       items: itemsToOrder.map((i) => ({
@@ -351,19 +330,18 @@ router.post("/create", protect, async (req, res) => {
       })),
       totalAmount: total,
       finalAmount,
-      dealerPriceUsed,
+      dealerPriceUsed: req.user.role === "DEALER",
       orderStatus: "PENDING",
       paymentStatus: "PENDING",
+      customOrderId,
     });
 
-    // Deduct stock
     for (const i of itemsToOrder) {
       const prod = await Product.findById(i.product._id);
       prod.stockQty -= i.qty;
       await prod.save();
     }
 
-    // Clear cart only if full cart order
     if (!productId) {
       await Cart.updateOne(
         { user: req.user.id },
