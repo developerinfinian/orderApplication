@@ -2,25 +2,9 @@ const express = require("express");
 const Cart = require("../models/Cart");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
-const Counter = require("../models/Counter");
 const { protect } = require("../middleware/auth");
 
 const router = express.Router();
-
-/* ============================================================
-   FUNCTION: GENERATE ORDER ID (Auto Increment)
-============================================================ */
-async function generateOrderId(role) {
-  let prefix = role === "DEALER" ? "DO" : "CO";
-
-  const counter = await Counter.findOneAndUpdate(
-    { key: prefix },
-    { $inc: { count: 1 } },
-    { new: true, upsert: true }
-  );
-
-  return `#${prefix}${counter.count}`;
-}
 
 /* ============================================================
    ADMIN / MANAGER: Get ALL Orders
@@ -95,7 +79,7 @@ router.put("/reject/:id", protect, async (req, res) => {
 });
 
 /* ============================================================
-   UPDATE ORDER (ADMIN / MANAGER / DEALER / CUSTOMER)
+   UPDATE ORDER
 ============================================================ */
 router.put("/update/:id", protect, async (req, res) => {
   try {
@@ -128,7 +112,6 @@ router.put("/update/:id", protect, async (req, res) => {
       });
     }
 
-    // Restore stock
     for (const old of order.items) {
       const prod = await Product.findById(old.product._id);
       if (prod) {
@@ -137,7 +120,6 @@ router.put("/update/:id", protect, async (req, res) => {
       }
     }
 
-    // Apply new items
     let total = 0;
     let finalAmount = 0;
     const newItems = [];
@@ -273,7 +255,7 @@ router.get("/", protect, async (req, res) => {
 });
 
 /* ============================================================
-   CREATE ORDER (Auto-Increment Unique ID Added)
+   CREATE ORDER
 ============================================================ */
 router.post("/create", protect, async (req, res) => {
   try {
@@ -303,11 +285,17 @@ router.post("/create", protect, async (req, res) => {
 
       cart.items = cart.items.filter((i) => i.product !== null);
 
+      if (cart.items.length === 0)
+        return res
+          .status(400)
+          .json({ message: "Cart contains invalid items" });
+
       itemsToOrder = cart.items;
     }
 
     let total = 0;
     let finalAmount = 0;
+    const dealerPriceUsed = req.user.role === "DEALER";
 
     for (const i of itemsToOrder) {
       const p = i.product;
@@ -319,9 +307,6 @@ router.post("/create", protect, async (req, res) => {
       else finalAmount += p.retailPrice * i.qty;
     }
 
-    // 🔥 Generate Unique Auto Increment Order ID
-    const customOrderId = await generateOrderId(req.user.role);
-
     const order = await Order.create({
       user: req.user.id,
       items: itemsToOrder.map((i) => ({
@@ -330,10 +315,9 @@ router.post("/create", protect, async (req, res) => {
       })),
       totalAmount: total,
       finalAmount,
-      dealerPriceUsed: req.user.role === "DEALER",
+      dealerPriceUsed,
       orderStatus: "PENDING",
       paymentStatus: "PENDING",
-      customOrderId,
     });
 
     for (const i of itemsToOrder) {
