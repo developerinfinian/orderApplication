@@ -207,7 +207,7 @@ router.put("/invoice/:id", protect, async (req, res) => {
 ============================================================ */
 router.delete("/delete/:id", protect, async (req, res) => {
   try {
-    if (!["ADMIN", "MANAGER", "USER"].includes(req.user.role))
+    if (!["ADMIN", "MANAGER", "CUSTOMER","DEALER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
 
     const order = await Order.findById(req.params.id).populate(
