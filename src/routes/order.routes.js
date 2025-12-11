@@ -79,16 +79,19 @@ router.put("/reject/:id", protect, async (req, res) => {
 });
 
 /* ============================================================
-   EDIT ORDER (Restock old → recalc → deduct new)
+   UPDATE ORDER (Fix: Was /edit → Now /update)
 ============================================================ */
-router.put("/edit/:id", protect, async (req, res) => {
+router.put("/update/:id", protect, async (req, res) => {
   try {
     if (!["ADMIN", "MANAGER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
 
     const { items } = req.body;
 
-    const order = await Order.findById(req.params.id).populate("items.product user");
+    const order = await Order.findById(req.params.id).populate(
+      "items.product user"
+    );
+
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (order.orderStatus !== "PENDING")
@@ -134,10 +137,9 @@ router.put("/edit/:id", protect, async (req, res) => {
 
       newItems.push({ product: prod._id, qty });
 
-      // Retail price calculation
+      // Retail pricing
       total += prod.retailPrice * qty;
 
-      // Dealer/customer logic
       if (order.user.role === "DEALER") {
         dealerPriceUsed = true;
         finalAmount += prod.dealerPrice * qty;
@@ -172,6 +174,7 @@ router.put("/invoice/:id", protect, async (req, res) => {
     if (!invoiceNumber || invoiceNumber.trim() === "")
       return res.status(400).json({ message: "Invoice number required" });
 
+    // Check for duplicate invoice number
     const exists = await Order.findOne({ invoiceNumber });
     if (exists && exists._id.toString() !== req.params.id)
       return res
@@ -200,14 +203,16 @@ router.delete("/delete/:id", protect, async (req, res) => {
     if (!["ADMIN", "MANAGER", "USER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
 
-    const order = await Order.findById(req.params.id).populate("items.product");
+    const order = await Order.findById(req.params.id).populate(
+      "items.product"
+    );
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // user can only delete pending orders
+    // User can only delete their pending order
     if (req.user.role === "USER" && order.orderStatus !== "PENDING")
-      return res.status(403).json({
-        message: "Only pending orders can be deleted",
-      });
+      return res
+        .status(403)
+        .json({ message: "Only pending orders can be deleted" });
 
     // Restore stock
     for (const item of order.items) {
@@ -220,7 +225,10 @@ router.delete("/delete/:id", protect, async (req, res) => {
 
     await order.deleteOne();
 
-    res.json({ success: true, message: "Order deleted & stock restored" });
+    res.json({
+      success: true,
+      message: "Order deleted & stock restored",
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -242,10 +250,7 @@ router.get("/", protect, async (req, res) => {
 });
 
 /* ============================================================
-   CREATE ORDER FROM CART (Retail for user, Dealer for dealer)
-============================================================ */
-/* ============================================================
-   CREATE ORDER (supports full cart + single item)
+   CREATE ORDER
 ============================================================ */
 router.post("/create", protect, async (req, res) => {
   try {
@@ -253,9 +258,9 @@ router.post("/create", protect, async (req, res) => {
 
     let itemsToOrder = [];
 
-    // -----------------------------------------
-    // CASE 1: SINGLE ITEM ORDER (Buy Now)
-    // -----------------------------------------
+    // -------------------------------
+    // CASE 1: SINGLE PRODUCT ORDER
+    // -------------------------------
     if (productId) {
       const product = await Product.findById(productId);
 
@@ -263,19 +268,15 @@ router.post("/create", protect, async (req, res) => {
         return res.status(404).json({ message: "Product not found" });
 
       if (product.stockQty < qty)
-        return res.status(400).json({
-          message: `Only ${product.stockQty} available`,
-        });
+        return res
+          .status(400)
+          .json({ message: `Only ${product.stockQty} available` });
 
-      itemsToOrder.push({
-        product,
-        qty,
-      });
-
+      itemsToOrder.push({ product, qty });
     } else {
-      // -----------------------------------------
+      // -------------------------------
       // CASE 2: FULL CART ORDER
-      // -----------------------------------------
+      // -------------------------------
       const cart = await Cart.findOne({ user: req.user.id }).populate(
         "items.product"
       );
@@ -283,37 +284,36 @@ router.post("/create", protect, async (req, res) => {
       if (!cart || cart.items.length === 0)
         return res.status(400).json({ message: "Cart is empty" });
 
-      // filter out null/deleted product entries
       cart.items = cart.items.filter((i) => i.product !== null);
 
       if (cart.items.length === 0)
-        return res.status(400).json({ message: "Cart contains invalid items" });
+        return res
+          .status(400)
+          .json({ message: "Cart contains invalid items" });
 
       itemsToOrder = cart.items;
     }
 
-    // -----------------------------------------
-    // CALCULATE PRICING
-    // -----------------------------------------
+    // -------------------------------
+    // PRICE CALCULATION
+    // -------------------------------
     let total = 0;
     let finalAmount = 0;
-    let dealerPriceUsed = req.user.role === "DEALER";
+    const dealerPriceUsed = req.user.role === "DEALER";
 
     for (const i of itemsToOrder) {
       const p = i.product;
 
       total += p.retailPrice * i.qty;
 
-      if (req.user.role === "DEALER") {
+      if (req.user.role === "DEALER")
         finalAmount += p.dealerPrice * i.qty;
-      } else {
-        finalAmount += p.retailPrice * i.qty;
-      }
+      else finalAmount += p.retailPrice * i.qty;
     }
 
-    // -----------------------------------------
+    // -------------------------------
     // CREATE ORDER
-    // -----------------------------------------
+    // -------------------------------
     const order = await Order.create({
       user: req.user.id,
       items: itemsToOrder.map((i) => ({
@@ -327,29 +327,29 @@ router.post("/create", protect, async (req, res) => {
       paymentStatus: "PENDING",
     });
 
-    // -----------------------------------------
-    // DEDUCT STOCK
-    // -----------------------------------------
+    // Deduct stock
     for (const i of itemsToOrder) {
       const prod = await Product.findById(i.product._id);
       prod.stockQty -= i.qty;
       await prod.save();
     }
 
-    // -----------------------------------------
-    // CLEAR CART ONLY IF FULL ORDER
-    // -----------------------------------------
+    // Clear cart only if full cart order
     if (!productId) {
-      await Cart.updateOne({ user: req.user.id }, { $set: { items: [] } });
+      await Cart.updateOne(
+        { user: req.user.id },
+        { $set: { items: [] } }
+      );
     }
 
     res.json({ success: true, message: "Order placed", order });
-
   } catch (err) {
     console.error("CREATE ORDER ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 });
 
-
+/* ============================================================
+   MODULE EXPORT
+============================================================ */
 module.exports = router;
