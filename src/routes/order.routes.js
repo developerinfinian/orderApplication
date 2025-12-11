@@ -81,12 +81,19 @@ router.put("/reject/:id", protect, async (req, res) => {
 /* ============================================================
    UPDATE ORDER (Fix: Was /edit → Now /update)
 ============================================================ */
+/* ============================================================
+   UPDATE ORDER → ADMIN & MANAGER can edit when:
+   - PENDING
+   - PROCESSING
+   Cannot edit when COMPLETED or CANCELLED
+============================================================ */
 router.put("/update/:id", protect, async (req, res) => {
   try {
+    // Only ADMIN / MANAGER can edit orders
     if (!["ADMIN", "MANAGER","CUSTOMER","DEALER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
 
-    const { items } = req.body;
+    const { items, user } = req.body;
 
     const order = await Order.findById(req.params.id).populate(
       "items.product user"
@@ -94,12 +101,30 @@ router.put("/update/:id", protect, async (req, res) => {
 
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    if (order.orderStatus !== "PENDING")
-      return res
-        .status(400)
-        .json({ message: "Only pending orders can be edited" });
+    // ❌ Completed or Cancelled orders cannot be edited
+    if (["COMPLETED", "CANCELLED"].includes(order.orderStatus)) {
+      return res.status(400).json({
+        message: "Completed or cancelled orders cannot be edited",
+      });
+    }
 
-    /* --- Restore old stock --- */
+    // ❌ Optional: Prevent editing if invoice is added
+    if (order.invoiceNumber) {
+      return res.status(400).json({
+        message: "Order cannot be edited after invoice is generated",
+      });
+    }
+
+    // Allowed statuses: PENDING or PROCESSING
+    if (!["PENDING", "PROCESSING"].includes(order.orderStatus)) {
+      return res.status(400).json({
+        message: "Only pending or processing orders can be edited",
+      });
+    }
+
+    /* ---------------------------
+          RESTORE OLD STOCK
+    ---------------------------- */
     for (const old of order.items) {
       const prod = await Product.findById(old.product._id);
       if (prod) {
@@ -108,10 +133,11 @@ router.put("/update/:id", protect, async (req, res) => {
       }
     }
 
-    /* --- Apply new items --- */
+    /* ---------------------------
+          APPLY NEW ITEMS
+    ---------------------------- */
     let total = 0;
     let finalAmount = 0;
-    let dealerPriceUsed = false;
 
     const newItems = [];
 
@@ -137,26 +163,29 @@ router.put("/update/:id", protect, async (req, res) => {
 
       newItems.push({ product: prod._id, qty });
 
-      // Retail pricing
+      // Pricing logic
+      const isDealer = order.user.role === "DEALER";
       total += prod.retailPrice * qty;
-
-      if (order.user.role === "DEALER") {
-        dealerPriceUsed = true;
-        finalAmount += prod.dealerPrice * qty;
-      } else {
-        finalAmount += prod.retailPrice * qty;
-      }
+      finalAmount += (isDealer ? prod.dealerPrice : prod.retailPrice) * qty;
     }
 
+    // Update order fields
     order.items = newItems;
     order.totalAmount = total;
     order.finalAmount = finalAmount;
-    order.dealerPriceUsed = dealerPriceUsed;
+
+    // Update user fields (name, phone) if sent
+    if (user) {
+      order.user.name = user.name || order.user.name;
+      order.user.phone = user.phone || order.user.phone;
+      await order.user.save();
+    }
 
     await order.save();
 
     res.json({ success: true, message: "Order updated", order });
   } catch (err) {
+    console.error("UPDATE ORDER ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 });
