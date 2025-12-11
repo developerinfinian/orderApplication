@@ -83,7 +83,7 @@ router.put("/reject/:id", protect, async (req, res) => {
 ============================================================ */
 router.put("/update/:id", protect, async (req, res) => {
   try {
-    if (!["ADMIN", "MANAGER"].includes(req.user.role))
+    if (!["ADMIN", "MANAGER","CUSTOMER","DEALER"].includes(req.user.role))
       return res.status(403).json({ message: "Access denied" });
 
     const { items } = req.body;
