@@ -1,323 +1,165 @@
-// routes/orders.js
 const express = require("express");
-const Cart = require("../models/Cart");
-const Order = require("../models/Order");
-const Product = require("../models/Product");
+const User = require("../models/User");
 const { protect } = require("../middleware/auth");
 
 const router = express.Router();
 
 /* ====================================================================
-   ADMIN / MANAGER: Get ALL Orders
+   ROLE VALIDATION HELPER
 ==================================================================== */
-router.get("/all", protect, async (req, res) => {
-  try {
-    const allowed = ["ADMIN", "MANAGER"];
-    if (!allowed.includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const orders = await Order.find()
-      .populate({ path: "user", select: "name email phone role" })
-      .populate({ path: "items.product", select: "name price" })
-      .sort({ createdAt: -1 });
-
-    res.json({ success: true, orders });
-  } catch (err) {
-    console.error("GET /all orders error", err);
-    res.status(500).json({ message: err.message });
-  }
-});
+const allowRoles = (userRole, roles) => roles.includes(userRole);
 
 /* ====================================================================
-   ADMIN / MANAGER: Accept Order
-==================================================================== */
-router.put("/accept/:id", protect, async (req, res) => {
-  try {
-    const allowed = ["ADMIN", "MANAGER"];
-    if (!allowed.includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
-
-    if (order.orderStatus !== "PENDING") {
-      return res.status(400).json({ message: "Only pending orders can be accepted" });
-    }
-
-    order.orderStatus = "PROCESSING";
-    await order.save();
-
-    res.json({ success: true, message: "Order accepted", order });
-  } catch (err) {
-    console.error("ACCEPT order error", err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-/* ====================================================================
-   ADMIN / MANAGER: Reject Order
-==================================================================== */
-router.put("/reject/:id", protect, async (req, res) => {
-  try {
-    const allowed = ["ADMIN", "MANAGER"];
-    if (!allowed.includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
-
-    if (order.orderStatus === "COMPLETED") {
-      return res.status(400).json({ message: "Cannot reject a completed order" });
-    }
-
-    order.orderStatus = "CANCELLED";
-    await order.save();
-
-    res.json({ success: true, message: "Order rejected", order });
-  } catch (err) {
-    console.error("REJECT order error", err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-/* ====================================================================
-   EDIT ORDER (Restore old stock → apply new stock difference)
-==================================================================== */
-router.put("/edit/:id", protect, async (req, res) => {
-  try {
-    const allowed = ["ADMIN", "MANAGER", "USER"];
-    if (!allowed.includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const { items } = req.body;
-
-    const order = await Order.findById(req.params.id).populate("items.product");
-    if (!order) return res.status(404).json({ message: "Order not found" });
-
-    if (order.orderStatus !== "PENDING") {
-      return res.status(400).json({ message: "Only pending orders can be edited" });
-    }
-
-    /* ==========================
-       STEP 1: RESTORE OLD STOCK
-    =========================== */
-    for (const old of order.items) {
-      const product = await Product.findById(old.product._id);
-      if (product) {
-        product.stockQty += old.qty;
-        await product.save();
-      }
-    }
-
-    /* ==========================
-       STEP 2: APPLY NEW ITEMS
-    =========================== */
-    let total = 0;
-    const newItems = [];
-
-    for (const it of items) {
-      const prod = await Product.findById(it.product);
-      if (!prod) return res.status(404).json({ message: "Product not found" });
-
-      const qty = Number(it.qty);
-      if (qty <= 0) return res.status(400).json({ message: "Invalid quantity" });
-
-      if (prod.stockQty < qty) {
-        return res.status(400).json({
-          message: `Only ${prod.stockQty} available for ${prod.name}`,
-        });
-      }
-
-      // Deduct new qty
-      prod.stockQty -= qty;
-      prod.alertLevel =
-        prod.stockQty < 5
-          ? "CRITICAL"
-          : prod.stockQty < 20
-          ? "LOW"
-          : prod.stockQty < 50
-          ? "WARNING"
-          : "NONE";
-
-      await prod.save();
-
-      newItems.push({ product: prod._id, qty });
-      total += prod.price * qty;
-    }
-
-    /* ==========================
-       STEP 3: SAVE ORDER UPDATE
-    =========================== */
-    order.items = newItems;
-    order.totalAmount = total;
-
-    await order.save();
-
-    res.json({
-      success: true,
-      message: "Order updated & stock adjusted",
-      order,
-    });
-  } catch (err) {
-    console.error("EDIT ORDER ERROR:", err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-/* ====================================================================
-   ADD INVOICE → COMPLETE ORDER
-==================================================================== */
-router.put("/invoice/:id", protect, async (req, res) => {
-  try {
-    const allowed = ["ADMIN", "MANAGER"];
-    if (!allowed.includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const { invoiceNumber } = req.body;
-    if (!invoiceNumber || invoiceNumber.trim() === "") {
-      return res.status(400).json({ message: "Invoice number required" });
-    }
-
-    const existing = await Order.findOne({ invoiceNumber });
-    if (existing && existing._id.toString() !== req.params.id) {
-      return res.status(400).json({ message: "Invoice number already exists" });
-    }
-
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
-
-    order.invoiceNumber = invoiceNumber;
-    order.orderStatus = "COMPLETED";
-    await order.save();
-
-    res.json({ success: true, message: "Invoice added", order });
-  } catch (err) {
-    console.error("INVOICE ERROR:", err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-/* ====================================================================
-   DELETE ORDER → RESTORE STOCK
-==================================================================== */
-router.delete("/delete/:id", protect, async (req, res) => {
-  try {
-    const allowed = ["ADMIN", "MANAGER", "USER"];
-    if (!allowed.includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const order = await Order.findById(req.params.id).populate("items.product");
-    if (!order) return res.status(404).json({ message: "Order not found" });
-
-    // users can delete only pending orders
-    if (req.user.role === "USER" && order.orderStatus !== "PENDING") {
-      return res.status(403).json({ message: "Only pending orders can be deleted" });
-    }
-
-    /* ================================================
-       RESTORE STOCK BACK WHEN ORDER IS DELETED
-    ================================================= */
-    for (const item of order.items) {
-      const product = await Product.findById(item.product._id);
-      if (product) {
-        product.stockQty += item.qty;
-
-        product.alertLevel =
-          product.stockQty < 5
-            ? "CRITICAL"
-            : product.stockQty < 20
-            ? "LOW"
-            : product.stockQty < 50
-            ? "WARNING"
-            : "NONE";
-
-        await product.save();
-      }
-    }
-
-    await order.deleteOne();
-
-    res.json({ success: true, message: "Order deleted & stock restored." });
-  } catch (err) {
-    console.error("DELETE ORDER ERROR:", err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-/* ====================================================================
-   USER: Get Own Orders
+   GET ALL USERS (ADMIN + MANAGER)
 ==================================================================== */
 router.get("/", protect, async (req, res) => {
   try {
-    const orders = await Order.find({ user: req.user.id })
-      .populate("items.product")
-      .sort({ createdAt: -1 });
+    if (!allowRoles(req.user.role, ["ADMIN", "MANAGER"])) {
+      return res.status(403).json({ message: "Access denied" });
+    }
 
-    res.json({ success: true, orders });
+    const users = await User.find().sort({ createdAt: -1 });
+    res.json({ success: true, users });
   } catch (err) {
-    console.error("GET USER ORDERS ERROR:", err);
+    console.error("FETCH USERS ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 });
 
 /* ====================================================================
-   CREATE ORDER FROM CART
+   ADD USER (ADMIN ONLY)
 ==================================================================== */
-router.post("/create", protect, async (req, res) => {
+router.post("/", protect, async (req, res) => {
   try {
-    const cart = await Cart.findOne({ user: req.user.id }).populate("items.product");
-
-    if (!cart || cart.items.length === 0) {
-      return res.status(400).json({ message: "Cart is empty" });
+    if (!allowRoles(req.user.role, ["ADMIN"])) {
+      return res.status(403).json({ message: "Only admin can add users" });
     }
 
-    let total = 0;
+    const { name, email, phone, password, role, address, gstNumber, profileImage } = req.body;
 
-    // compute total
-    cart.items.forEach((i) => {
-      total += i.product.price * i.qty;
-    });
-
-    const order = await Order.create({
-      user: req.user.id,
-      items: cart.items.map((i) => ({ product: i.product._id, qty: i.qty })),
-      totalAmount: total,
-      orderStatus: "PENDING",
-      paymentStatus: "PENDING",
-    });
-
-    // reduce stock
-    for (const i of cart.items) {
-      const product = await Product.findById(i.product._id);
-      if (product) {
-        product.stockQty -= i.qty;
-
-        product.alertLevel =
-          product.stockQty < 5
-            ? "CRITICAL"
-            : product.stockQty < 20
-            ? "LOW"
-            : product.stockQty < 50
-            ? "WARNING"
-            : "NONE";
-
-        await product.save();
-      }
+    // Duplicate check
+    const exists = await User.findOne({ $or: [{ email }, { phone }] });
+    if (exists) {
+      return res.status(400).json({ message: "Email or Phone already exists" });
     }
 
-    // clear cart
-    cart.items = [];
-    await cart.save();
+    const user = await User.create({
+      name,
+      email,
+      phone,
+      password,
+      role,
+      address,
+      gstNumber,
+      profileImage,
+    });
 
-    res.json({ success: true, message: "Order placed", order });
+    res.json({ success: true, message: "User created", user });
   } catch (err) {
-    console.error("CREATE ORDER ERROR:", err);
+    console.error("ADD USER ERROR:", err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* ====================================================================
+   GET SPECIFIC USER (ADMIN + MANAGER)
+==================================================================== */
+router.get("/:id", protect, async (req, res) => {
+  try {
+    if (!allowRoles(req.user.role, ["ADMIN", "MANAGER"])) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    res.json({ success: true, user });
+  } catch (err) {
+    console.error("FETCH USER ERROR:", err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* ====================================================================
+   UPDATE USER (ADMIN ONLY)
+==================================================================== */
+router.put("/:id", protect, async (req, res) => {
+  try {
+    if (!allowRoles(req.user.role, ["ADMIN"])) {
+      return res.status(403).json({ message: "Only admin can edit users" });
+    }
+
+    const { name, email, phone, role, address, gstNumber, profileImage } = req.body;
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Check duplicates except itself
+    const duplicate = await User.findOne({
+      $or: [{ email }, { phone }],
+      _id: { $ne: user._id },
+    });
+
+    if (duplicate) {
+      return res.status(400).json({ message: "Email or Phone already in use" });
+    }
+
+    user.name = name ?? user.name;
+    user.email = email ?? user.email;
+    user.phone = phone ?? user.phone;
+    user.role = role ?? user.role;
+    user.address = address ?? user.address;
+    user.gstNumber = gstNumber ?? user.gstNumber;
+    user.profileImage = profileImage ?? user.profileImage;
+
+    await user.save();
+
+    res.json({ success: true, message: "User updated", user });
+  } catch (err) {
+    console.error("UPDATE USER ERROR:", err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* ====================================================================
+   TOGGLE ACTIVE/INACTIVE (ADMIN + MANAGER)
+==================================================================== */
+router.put("/:id/status", protect, async (req, res) => {
+  try {
+    if (!allowRoles(req.user.role, ["ADMIN", "MANAGER"])) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    user.isActive = !user.isActive;
+    await user.save();
+
+    res.json({ success: true, message: "User status updated", isActive: user.isActive });
+  } catch (err) {
+    console.error("STATUS ERROR:", err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* ====================================================================
+   DELETE USER (ADMIN ONLY)
+==================================================================== */
+router.delete("/:id", protect, async (req, res) => {
+  try {
+    if (!allowRoles(req.user.role, ["ADMIN"])) {
+      return res.status(403).json({ message: "Only admin can delete users" });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    await user.deleteOne();
+
+    res.json({ success: true, message: "User deleted successfully" });
+  } catch (err) {
+    console.error("DELETE USER ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 });
